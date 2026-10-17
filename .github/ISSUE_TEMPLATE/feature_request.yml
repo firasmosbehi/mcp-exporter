@@ -1,0 +1,14 @@
+name: Feature request
+description: Propose new telemetry, a transport feature or an integration
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes: {label: "What problem would this solve?", description: "What can't you see or do today?"}
+    validations: {required: true}
+  - type: textarea
+    id: proposal
+    attributes: {label: Proposed solution, description: "Include span/metric/attribute names if relevant, and whether the OTel MCP semantic conventions already define them."}
+  - type: textarea
+    id: alternatives
+    attributes: {label: Alternatives considered}
