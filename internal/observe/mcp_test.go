@@ -272,3 +272,52 @@ func TestTasks(t *testing.T) {
 		t.Errorf("want one completed and one failed task, got %v", counts)
 	}
 }
+
+// Issue #13: observing from the agent's side flips span kinds, metric names
+// and the semconv error rules.
+func TestClientRole(t *testing.T) {
+	_, spans, reader := setup(t)
+	tr := NewTracker(Options{Transport: "tcp", Role: "client", ServerAddress: "mcp.example.com", ServerPort: 443})
+
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-11-25","serverInfo":{"name":"remote"}}}`)
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search"}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"no such tool"}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":"s1","method":"sampling/createMessage","params":{}}`)
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":"s1","error":{"code":-32602,"message":"bad params"}}`)
+	tr.EndSession("")
+
+	got := spans.GetSpans()
+	if len(got) != 3 {
+		t.Fatalf("want 3 spans, got %d", len(got))
+	}
+	call, sampling := got[1], got[2]
+	if a := attrs(call); call.SpanKind != trace.SpanKindClient || a["server.address"] != "mcp.example.com" || a["server.port"] != "443" {
+		t.Errorf("agent-sent request: kind=%v attrs=%v", call.SpanKind, a)
+	}
+	if a := attrs(call); a["error.type"] != "-32601" {
+		t.Errorf("on the client every JSON-RPC error code is an error, got error.type=%q", a["error.type"])
+	}
+	if a := attrs(sampling); sampling.SpanKind != trace.SpanKindServer || a["error.type"] != "" || a["server.address"] != "" {
+		t.Errorf("request received by the agent should be a SERVER span with server-side error rules: kind=%v attrs=%v", sampling.SpanKind, a)
+	}
+
+	var rm metricdata.ResourceMetrics
+	reader.Collect(context.Background(), &rm)
+	names := map[string]bool{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			names[m.Name] = true
+		}
+	}
+	for _, want := range []string{"mcp.client.operation.duration", "mcp.server.operation.duration", "mcp.client.session.duration", "mcp.client.sessions.active", "mcp.client.requests.inflight"} {
+		if !names[want] {
+			t.Errorf("missing metric %s (have %v)", want, names)
+		}
+	}
+	for _, unwanted := range []string{"mcp.server.session.duration", "mcp.server.sessions.active"} {
+		if names[unwanted] {
+			t.Errorf("client role must not emit %s", unwanted)
+		}
+	}
+}
