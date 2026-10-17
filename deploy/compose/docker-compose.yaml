@@ -1,0 +1,24 @@
+# Reference stack: MCP server <- mcp-exporter -> grafana/otel-lgtm
+# (OTel Collector + Prometheus + Tempo + Loki + Grafana in one image).
+#   docker compose -f deploy/compose/docker-compose.yaml up --build
+# MCP endpoint: http://localhost:8080/mcp   Grafana: http://localhost:3000
+services:
+  mcp-server:
+    image: node:22-alpine
+    command: ["npx", "-y", "@modelcontextprotocol/server-everything", "streamableHttp"]
+    environment:
+      PORT: "3001"
+
+  mcp-exporter:
+    build: ../..
+    command: ["http", "-listen", ":8080", "-upstream", "http://mcp-server:3001"]
+    ports: ["8080:8080"]
+    environment:
+      OTEL_SERVICE_NAME: everything
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+      OTEL_METRIC_EXPORT_INTERVAL: "10000"
+    depends_on: [mcp-server, lgtm]
+
+  lgtm:
+    build: {context: .., dockerfile: compose/lgtm.Dockerfile} # adds the MCP dashboard
+    ports: ["3000:3000"]

@@ -1,0 +1,42 @@
+# The MCP server to run. It must speak Streamable HTTP on server.port; the
+# sidecar takes the Service port and proxies to it over localhost.
+server:
+  image: node:22-alpine
+  command: ["npx", "-y", "@modelcontextprotocol/server-everything", "streamableHttp"]
+  args: []
+  port: 3001
+  env: [{name: PORT, value: "3001"}]
+  resources: {}
+
+exporter:
+  image: ghcr.io/firasmosbehi/mcp-exporter:0.1.0
+  port: 8080
+  extraArgs: []          # e.g. ["-capture-payloads"]
+  # Standard OTel env vars; anything here is passed through verbatim.
+  env:
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+    OTEL_TRACES_SAMPLER: parentbased_traceidratio
+    OTEL_TRACES_SAMPLER_ARG: "1.0"
+  # Pull metrics with Prometheus instead of pushing them over OTLP.
+  prometheus:
+    enabled: false
+    port: 9464
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+
+replicas: 1
+service:
+  type: ClusterIP
+  port: 80
+
+# Requires the Prometheus Operator CRDs and exporter.prometheus.enabled.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  labels: {}
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

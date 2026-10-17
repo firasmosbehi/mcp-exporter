@@ -1,0 +1,28 @@
+version: 2
+builds:
+  - main: ./cmd/mcp-exporter
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+archives:
+  - formats: [tar.gz]
+    format_overrides: [{goos: windows, formats: [zip]}]
+checksum: {name_template: checksums.txt}
+sboms:
+  - artifacts: archive
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args: [sign-blob, "--output-certificate=${certificate}", "--output-signature=${signature}", "${artifact}", --yes]
+dockers_v2:
+  - images: ["ghcr.io/firasmosbehi/mcp-exporter"]
+    tags: ["{{ .Version }}", latest]
+    dockerfile: release.Dockerfile
+    platforms: [linux/amd64, linux/arm64]
+docker_signs:
+  - artifacts: manifests
+    args: [sign, "${artifact}", --yes]

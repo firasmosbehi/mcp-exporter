@@ -1,0 +1,292 @@
+{
+ "title": "MCP Servers",
+ "uid": "mcp-exporter",
+ "schemaVersion": 39,
+ "time": {
+  "from": "now-1h",
+  "to": "now"
+ },
+ "refresh": "30s",
+ "templating": {
+  "list": [
+   {
+    "name": "service",
+    "type": "query",
+    "datasource": {
+     "type": "prometheus"
+    },
+    "query": "label_values(mcp_server_operation_duration_seconds_count, service_name)",
+    "includeAll": true,
+    "multi": true,
+    "current": {
+     "text": "All",
+     "value": "$__all"
+    },
+    "allValue": ".*"
+   }
+  ]
+ },
+ "panels": [
+  {
+   "type": "stat",
+   "title": "Requests/s",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 6,
+    "h": 4
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum(rate(mcp_server_operation_duration_seconds_count{service_name=~\"$service\"}[5m]))",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "Error %",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 6,
+    "y": 0,
+    "w": 6,
+    "h": 4
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "100 * sum(rate(mcp_server_operation_duration_seconds_count{service_name=~\"$service\",error_type!=\"\"}[5m])) / sum(rate(mcp_server_operation_duration_seconds_count{service_name=~\"$service\"}[5m]))",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "Active sessions",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 0,
+    "w": 6,
+    "h": 4
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum(mcp_server_sessions_active{service_name=~\"$service\"})",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "In-flight",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 0,
+    "w": 6,
+    "h": 4
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum(mcp_server_requests_inflight{service_name=~\"$service\"})",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Requests/s by method",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 4,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (mcp_method_name) (rate(mcp_server_operation_duration_seconds_count{service_name=~\"$service\"}[5m]))",
+     "legendFormat": "{{mcp_method_name}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Errors/s by tool and error.type",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 4,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (gen_ai_tool_name, error_type) (rate(mcp_server_operation_duration_seconds_count{service_name=~\"$service\",error_type!=\"\"}[5m]))",
+     "legendFormat": "{{gen_ai_tool_name}} {{error_type}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Tool latency p95",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 12,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.95, sum by (le, gen_ai_tool_name) (rate(mcp_server_operation_duration_seconds_bucket{service_name=~\"$service\",mcp_method_name=\"tools/call\"}[5m])))",
+     "legendFormat": "{{gen_ai_tool_name}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Tool calls/s",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 12,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (gen_ai_tool_name) (rate(mcp_server_operation_duration_seconds_count{service_name=~\"$service\",mcp_method_name=\"tools/call\"}[5m]))",
+     "legendFormat": "{{gen_ai_tool_name}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Session duration p50 / p95",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 20,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.5, sum by (le) (rate(mcp_server_session_duration_seconds_bucket{service_name=~\"$service\"}[30m])))",
+     "legendFormat": "p50",
+     "refId": "A"
+    },
+    {
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_server_session_duration_seconds_bucket{service_name=~\"$service\"}[30m])))",
+     "legendFormat": "p95",
+     "refId": "B"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Message size p95 by direction",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 20,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.95, sum by (le, mcp_direction) (rate(mcp_message_size_bytes_bucket{service_name=~\"$service\"}[5m])))",
+     "legendFormat": "{{mcp_direction}}",
+     "refId": "A"
+    }
+   ]
+  }
+ ]
+}

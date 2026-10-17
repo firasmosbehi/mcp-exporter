@@ -1,0 +1,6 @@
+/dist
+/mcp-exporter
+# local agent tooling state
+/.claude-flow
+/.swarm
+/ruvector.db

@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Chart.Name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      containers:
+        - name: server
+          image: {{ .Values.server.image }}
+          {{- with .Values.server.command }}
+          command: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.server.args }}
+          args: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.server.env }}
+          env: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources: {{- toYaml .Values.server.resources | nindent 12 }}
+        - name: mcp-exporter
+          image: {{ .Values.exporter.image }}
+          args:
+            - http
+            - -listen=:{{ .Values.exporter.port }}
+            - -upstream=http://127.0.0.1:{{ .Values.server.port }}
+            {{- range .Values.exporter.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Release.Name }}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: k8s.namespace.name={{ .Release.Namespace }},k8s.pod.name=$(POD_NAME)
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            {{- if .Values.exporter.prometheus.enabled }}
+            - name: OTEL_METRICS_EXPORTER
+              value: prometheus
+            - name: OTEL_EXPORTER_PROMETHEUS_HOST
+              value: 0.0.0.0
+            - name: OTEL_EXPORTER_PROMETHEUS_PORT
+              value: {{ .Values.exporter.prometheus.port | quote }}
+            {{- end }}
+            {{- range $k, $v := .Values.exporter.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          ports:
+            - {name: mcp, containerPort: {{ .Values.exporter.port }}}
+            {{- if .Values.exporter.prometheus.enabled }}
+            - {name: metrics, containerPort: {{ .Values.exporter.prometheus.port }}}
+            {{- end }}
+          readinessProbe:
+            httpGet: {path: /readyz, port: mcp}
+          livenessProbe:
+            httpGet: {path: /healthz, port: mcp}
+          resources: {{- toYaml .Values.exporter.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}

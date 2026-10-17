@@ -1,0 +1,33 @@
+# Prometheus alerting rules for mcp-exporter metrics (names as translated from OTLP).
+groups:
+  - name: mcp
+    rules:
+      - alert: MCPHighErrorRate
+        expr: |
+          sum by (service_name) (rate(mcp_server_operation_duration_seconds_count{error_type!=""}[5m]))
+            / sum by (service_name) (rate(mcp_server_operation_duration_seconds_count[5m])) > 0.05
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "MCP server {{ $labels.service_name }} errors > 5%"
+      - alert: MCPToolFailing
+        expr: |
+          sum by (service_name, gen_ai_tool_name) (rate(mcp_server_operation_duration_seconds_count{mcp_method_name="tools/call",error_type!=""}[10m]))
+            / sum by (service_name, gen_ai_tool_name) (rate(mcp_server_operation_duration_seconds_count{mcp_method_name="tools/call"}[10m])) > 0.25
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Tool {{ $labels.gen_ai_tool_name }} on {{ $labels.service_name }} fails > 25% of calls"
+      - alert: MCPSlowTools
+        expr: |
+          histogram_quantile(0.99, sum by (le, service_name) (rate(mcp_server_operation_duration_seconds_bucket{mcp_method_name="tools/call"}[5m]))) > 10
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "MCP server {{ $labels.service_name }} tool p99 latency > 10s"
+      - alert: MCPExporterParseErrors
+        expr: sum by (service_name) (rate(mcp_exporter_parse_errors_total[5m])) > 0
+        for: 15m
+        labels: {severity: info}
+        annotations:
+          summary: "mcp-exporter on {{ $labels.service_name }} sees non-JSON-RPC frames (unobserved traffic)"
