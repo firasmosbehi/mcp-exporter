@@ -5,6 +5,8 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1]
+
 ### Fixed
 - **Crash:** a request with `"params": {"_meta": null}` (or `"params": null`) panicked while injecting trace context. That killed the process in stdio mode, and failed the request in HTTP mode. It affected every release up to 0.3.0, and the workaround is `-inject-context=false`. Found by fuzzing (#38).
 - Injecting trace context no longer HTML-escapes `&`, `<` and `>` in request ids and arguments (#38).
@@ -51,7 +53,8 @@ All notable changes are documented here. The format follows
 - Signed release binaries, multi-arch distroless image, SBOMs, and the Helm chart as a signed OCI artifact.
 - `mcp-exporter version`, with the version also reported as the `telemetry.distro.version` resource attribute.
 
-[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/firasmosbehi/mcp-exporter/releases/tag/v0.1.0
