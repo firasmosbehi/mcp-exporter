@@ -27,18 +27,18 @@ client ──► mcp-exporter ──► MCP server
 # Binary (linux/darwin/windows, amd64/arm64): https://github.com/firasmosbehi/mcp-exporter/releases
 go install github.com/firasmosbehi/mcp-exporter/cmd/mcp-exporter@latest
 # Container image (multi-arch, distroless, non-root)
-docker pull ghcr.io/firasmosbehi/mcp-exporter:0.2.0
+docker pull ghcr.io/firasmosbehi/mcp-exporter:0.3.0
 # Helm chart (OCI)
-helm pull oci://ghcr.io/firasmosbehi/charts/mcp-exporter --version 0.2.0
+helm pull oci://ghcr.io/firasmosbehi/charts/mcp-exporter --version 0.3.0
 ```
 
 Every artifact is signed with keyless cosign from the release workflow:
 
 ```sh
-ID='https://github.com/firasmosbehi/mcp-exporter/.github/workflows/release.yml@refs/tags/v0.2.0'
+ID='https://github.com/firasmosbehi/mcp-exporter/.github/workflows/release.yml@refs/tags/v0.3.0'
 ISSUER=https://token.actions.githubusercontent.com
-cosign verify ghcr.io/firasmosbehi/mcp-exporter:0.2.0 --certificate-identity "$ID" --certificate-oidc-issuer $ISSUER
-cosign verify ghcr.io/firasmosbehi/charts/mcp-exporter:0.2.0 --certificate-identity "$ID" --certificate-oidc-issuer $ISSUER
+cosign verify ghcr.io/firasmosbehi/mcp-exporter:0.3.0 --certificate-identity "$ID" --certificate-oidc-issuer $ISSUER
+cosign verify ghcr.io/firasmosbehi/charts/mcp-exporter:0.3.0 --certificate-identity "$ID" --certificate-oidc-issuer $ISSUER
 # binaries: verify checksums.txt, then sha256sum -c
 cosign verify-blob checksums.txt --signature checksums.txt.sig --certificate checksums.txt.pem \
   --certificate-identity "$ID" --certificate-oidc-issuer $ISSUER
@@ -72,7 +72,7 @@ docker compose -f deploy/compose/docker-compose.yaml up --build
 **Kubernetes:** the Helm chart runs your server with the exporter as a sidecar:
 
 ```sh
-helm install weather oci://ghcr.io/firasmosbehi/charts/mcp-exporter --version 0.2.0 \
+helm install weather oci://ghcr.io/firasmosbehi/charts/mcp-exporter --version 0.3.0 \
   --set server.image=ghcr.io/acme/weather-mcp:1.2.0 --set server.port=3000 \
   --set exporter.env.OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.observability:4318
 # Prometheus Operator instead of OTLP metrics:

@@ -5,6 +5,8 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0]
+
 ### Added
 - [docs/backends.md](docs/backends.md): env-var recipes for Grafana Cloud, Honeycomb, Datadog (agentless, delta metrics) and SigNoz, plus what to expect in GenAI "LLM views" and troubleshooting (#14).
 - Client mode, `-role client` (#13): observes from the agent's side. Agent-sent requests become CLIENT spans with `server.address`/`server.port` and `mcp.client.operation.duration`, where every error code counts. Session metrics are named `mcp.client.*`. Works over stdio (e.g. wrapping `mcp-remote`) and HTTP.
@@ -42,6 +44,7 @@ All notable changes are documented here. The format follows
 - Signed release binaries, multi-arch distroless image, SBOMs, and the Helm chart as a signed OCI artifact.
 - `mcp-exporter version`, with the version also reported as the `telemetry.distro.version` resource attribute.
 
-[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/firasmosbehi/mcp-exporter/releases/tag/v0.1.0
