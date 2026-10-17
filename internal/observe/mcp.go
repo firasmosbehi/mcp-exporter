@@ -35,11 +35,13 @@ const (
 func (d Dir) other() Dir { return 1 - d }
 
 type Options struct {
-	Transport       string // network.transport: "pipe" (stdio) or "tcp" (HTTP)
-	InjectContext   bool   // write traceparent into params._meta of client requests lacking one
-	CapturePayloads bool   // record redacted tool arguments/results (opt-in per semconv)
-	MaxPayload      int    // truncate captured payloads to this many bytes
-	MaxNames        int    // distinct tool/prompt names on metrics before folding into "_other"
+	Transport       string          // network.transport: "pipe" (stdio) or "tcp" (HTTP)
+	InjectContext   bool            // write traceparent into params._meta of client requests lacking one
+	CapturePayloads bool            // record redacted tool arguments/results (opt-in per semconv)
+	MaxPayload      int             // truncate captured payloads to this many bytes
+	CaptureTools    map[string]bool // if non-empty, capture payloads only for these tools
+	RedactKeys      *regexp.Regexp  // object keys whose values are redacted; nil means DefaultRedactKeys
+	MaxNames        int             // distinct tool/prompt names on metrics before folding into "_other"
 }
 
 // Semconv: on the server these JSON-RPC codes are caller mistakes, not server errors.
@@ -76,6 +78,7 @@ type pending struct {
 	start      time.Time
 	dir        Dir
 	method     string
+	tool       string
 	clientName string
 	attrs      []attribute.KeyValue     // metric attributes
 	base       metric.MeasurementOption // attributes at start, for the inflight counter
@@ -92,6 +95,9 @@ type session struct {
 var durBuckets = []float64{0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60, 120, 300}
 
 func NewTracker(opts Options) *Tracker {
+	if opts.RedactKeys == nil {
+		opts.RedactKeys = regexp.MustCompile(DefaultRedactKeys)
+	}
 	if opts.MaxPayload <= 0 {
 		opts.MaxPayload = 4096
 	}
@@ -209,8 +215,8 @@ func (t *Tracker) startRequest(ctx context.Context, dir Dir, scope, sess string,
 		name += " " + p.Name
 		spanAttrs = append(spanAttrs, attribute.String("gen_ai.tool.name", p.Name), attribute.String("gen_ai.operation.name", "execute_tool"))
 		metricAttrs = append(metricAttrs, attribute.String("gen_ai.tool.name", t.capName("tool:"+p.Name, p.Name)))
-		if t.opts.CapturePayloads && len(p.Arguments) > 0 {
-			spanAttrs = append(spanAttrs, attribute.String("gen_ai.tool.call.arguments", redact(p.Arguments, t.opts.MaxPayload)))
+		if t.capture(p.Name) && len(p.Arguments) > 0 {
+			spanAttrs = append(spanAttrs, attribute.String("gen_ai.tool.call.arguments", t.redact(p.Arguments)))
 		}
 	case "prompts/get":
 		name += " " + p.Name
@@ -223,7 +229,7 @@ func (t *Tracker) startRequest(ctx context.Context, dir Dir, scope, sess string,
 	opts = append(opts, trace.WithSpanKind(kind), trace.WithAttributes(spanAttrs...))
 	spanCtx, span := t.tracer.Start(parent, name, opts...)
 
-	pd := &pending{ctx: spanCtx, span: span, start: time.Now(), dir: dir, method: m.Method,
+	pd := &pending{ctx: spanCtx, span: span, start: time.Now(), dir: dir, method: m.Method, tool: p.Name,
 		attrs: metricAttrs, base: metric.WithAttributes(metricAttrs...)}
 	if p.ClientInfo != nil {
 		pd.clientName = p.ClientInfo.Name
@@ -281,8 +287,8 @@ func (t *Tracker) finish(pd *pending, sess string, m *jsonrpc.Message, errType s
 		if pd.method == "initialize" {
 			t.startSession(sess, r, pd.clientName)
 		}
-		if t.opts.CapturePayloads && pd.method == "tools/call" {
-			span.SetAttributes(attribute.String("gen_ai.tool.call.result", redact(m.Result, t.opts.MaxPayload)))
+		if pd.method == "tools/call" && t.capture(pd.tool) {
+			span.SetAttributes(attribute.String("gen_ai.tool.call.result", t.redact(m.Result)))
 		}
 	}
 	if errType != "" {
@@ -320,7 +326,7 @@ func (t *Tracker) notification(ctx context.Context, dir Dir, scope string, m *js
 			t.log.Log(ctx, mcpLevel(p.Level), "mcp server log",
 				"mcp.log.level", p.Level,
 				"mcp.log.logger", p.Logger,
-				"mcp.log.data", truncate(string(p.Data), t.opts.MaxPayload))
+				"mcp.log.data", t.redact(p.Data))
 		}
 	}
 }
@@ -446,31 +452,44 @@ func hashID(id string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-var secretKey = regexp.MustCompile(`(?i)pass|token|secret|key|auth|credential|cookie|session`)
+// DefaultRedactKeys matches object keys whose values are never exported.
+const DefaultRedactKeys = `(?i)pass|token|secret|key|auth|credential|cookie|session`
 
-func redact(raw json.RawMessage, max int) string {
-	var v any
-	if json.Unmarshal(raw, &v) != nil {
-		return truncate(string(raw), max)
-	}
-	b, _ := json.Marshal(redactValue(v))
-	return truncate(string(b), max)
+// secretValue matches common credential shapes inside any string, whatever
+// its key: JWTs, bearer tokens, OpenAI/Anthropic-style, GitHub, Slack and AWS keys.
+var secretValue = regexp.MustCompile(`eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}|(?i:bearer\s+)[\w.~+/-]{8,}=*|\bsk-[\w-]{16,}|\bgh[pousr]_[A-Za-z0-9]{30,}|\bxox[abposr]-[\w-]{10,}|\bAKIA[0-9A-Z]{16}\b`)
+
+func (t *Tracker) capture(tool string) bool {
+	return t.opts.CapturePayloads && (len(t.opts.CaptureTools) == 0 || t.opts.CaptureTools[tool])
 }
 
-func redactValue(v any) any {
+// redact returns raw as JSON with secret keys and secret-looking values
+// replaced, truncated to MaxPayload. Non-JSON input is treated as one string.
+func (t *Tracker) redact(raw json.RawMessage) string {
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return truncate(secretValue.ReplaceAllString(string(raw), "[REDACTED]"), t.opts.MaxPayload)
+	}
+	b, _ := json.Marshal(t.redactValue(v))
+	return truncate(string(b), t.opts.MaxPayload)
+}
+
+func (t *Tracker) redactValue(v any) any {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, val := range x {
-			if secretKey.MatchString(k) {
+			if t.opts.RedactKeys.MatchString(k) {
 				x[k] = "[REDACTED]"
 			} else {
-				x[k] = redactValue(val)
+				x[k] = t.redactValue(val)
 			}
 		}
 	case []any:
 		for i := range x {
-			x[i] = redactValue(x[i])
+			x[i] = t.redactValue(x[i])
 		}
+	case string:
+		return secretValue.ReplaceAllString(x, "[REDACTED]")
 	}
 	return v
 }

@@ -2,6 +2,8 @@ package observe
 
 import (
 	"context"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -149,5 +151,46 @@ func BenchmarkRequestResponse(b *testing.B) {
 	for b.Loop() {
 		tr.Frame(ctx, ClientToServer, "s", "", req)
 		tr.Frame(ctx, ServerToClient, "s", "", resp)
+	}
+}
+
+// Issue #8: redaction by key, by value shape, and the capture allowlist.
+func TestRedaction(t *testing.T) {
+	tr := NewTracker(Options{CapturePayloads: true})
+	for in, want := range map[string]string{
+		`{"city":"Tunis","api_key":"x"}`:                                                 `{"api_key":"[REDACTED]","city":"Tunis"}`,
+		`{"nested":[{"Password":"x"}]}`:                                                  `{"nested":[{"Password":"[REDACTED]"}]}`,
+		`{"note":"use sk-abcdefghijklmnopqrstu please"}`:                                 `{"note":"use [REDACTED] please"}`,
+		`{"h":"Bearer abc.def-ghi_jkl"}`:                                                 `{"h":"[REDACTED]"}`,
+		`{"jwt":"eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4"}`:                 `{"jwt":"[REDACTED]"}`,
+		`{"aws":"AKIAIOSFODNN7EXAMPLE","gh":"ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`: `{"aws":"[REDACTED]","gh":"[REDACTED]"}`,
+		`{"msg":"skeleton sk-short monkey"}`:                                             `{"msg":"skeleton sk-short monkey"}`,
+		`not json with sk-abcdefghijklmnopqrstu`:                                         `not json with [REDACTED]`,
+	} {
+		if got := tr.redact([]byte(in)); got != want {
+			t.Errorf("redact(%s)\n got %s\nwant %s", in, got, want)
+		}
+	}
+
+	custom := NewTracker(Options{CapturePayloads: true, RedactKeys: regexp.MustCompile(`^ssn$`)})
+	if got := custom.redact([]byte(`{"ssn":"1","password":"2"}`)); got != `{"password":"2","ssn":"[REDACTED]"}` {
+		t.Errorf("custom keys replace the default: %s", got)
+	}
+}
+
+func TestCaptureAllowlist(t *testing.T) {
+	_, spans, _ := setup(t)
+	tr := NewTracker(Options{Transport: "pipe", CapturePayloads: true, CaptureTools: map[string]bool{"search": true}})
+	for i, tool := range []string{"search", "delete_repo"} {
+		id := strconv.Itoa(i + 1)
+		send(tr, ClientToServer, `{"jsonrpc":"2.0","id":`+id+`,"method":"tools/call","params":{"name":"`+tool+`","arguments":{"q":"x"}}}`)
+		send(tr, ServerToClient, `{"jsonrpc":"2.0","id":`+id+`,"result":{"content":[]}}`)
+	}
+	got := spans.GetSpans()
+	if a := attrs(got[0]); a["gen_ai.tool.call.arguments"] == "" || a["gen_ai.tool.call.result"] == "" {
+		t.Errorf("allowlisted tool should be captured: %v", a)
+	}
+	if a := attrs(got[1]); a["gen_ai.tool.call.arguments"] != "" || a["gen_ai.tool.call.result"] != "" {
+		t.Errorf("other tools must not be captured: %v", a)
 	}
 }
