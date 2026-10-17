@@ -3,11 +3,15 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const fakeResponse = `{"jsonrpc":"2.0","id":1,"result":{"content":[]}}`
@@ -59,5 +63,45 @@ func TestStdioRelaysFrames(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "server log line") {
 		t.Errorf("server stderr should be passed through, got:\n%s", stderr)
+	}
+}
+
+func freeAddr(t *testing.T) string {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	return l.Addr().String()
+}
+
+// Issue #11: pprof is served on its own listener, never on the proxy port.
+func TestPprofListener(t *testing.T) {
+	bin := buildBinary(t)
+	proxyAddr, pprofAddr := freeAddr(t), freeAddr(t)
+	cmd := exec.Command(bin, "http", "-listen", proxyAddr, "-upstream", "http://127.0.0.1:1", "-pprof", pprofAddr)
+	cmd.Env = append(os.Environ(), "OTEL_TRACES_EXPORTER=none", "OTEL_METRICS_EXPORTER=none", "OTEL_LOGS_EXPORTER=none")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cmd.Process.Kill()
+
+	get := func(url string) (int, string) {
+		for i := 0; i < 50; i++ { // wait for the listeners
+			if resp, err := http.Get(url); err == nil {
+				b, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				return resp.StatusCode, string(b)
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		t.Fatalf("%s never answered", url)
+		return 0, ""
+	}
+	if code, body := get("http://" + pprofAddr + "/debug/pprof/cmdline"); code != 200 || !strings.Contains(body, "-pprof") {
+		t.Errorf("pprof cmdline: %d %q", code, body)
+	}
+	if code, _ := get("http://" + proxyAddr + "/debug/pprof/cmdline"); code == 200 {
+		t.Error("pprof must not be reachable on the proxy port")
 	}
 }

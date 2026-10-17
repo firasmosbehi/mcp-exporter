@@ -106,6 +106,7 @@ Flags (`mcp-exporter <mode> -h`):
 | `-listen`, `-upstream` | `:8080`, — | http mode; request paths pass through to the upstream base URL |
 | — | — | http mode: `GET /healthz` is liveness, and `GET /readyz` returns 503 while the upstream refuses TCP connections (cached 2s) |
 | `-session-idle` | `30m` | http mode; ends abandoned sessions and requests that never got a response |
+| `-pprof` | off | serve the exporter's Go pprof on this address (see Profiles) |
 | `-tls-cert`, `-tls-key`, `-tls-client-ca` | — | http mode; TLS, and mTLS when a client CA is given |
 
 ## Telemetry
@@ -151,6 +152,25 @@ with MCP levels mapped to OTel severities, and the server's stderr in stdio mode
 **Dashboards and alerts:** see [deploy/grafana/dashboard.json](deploy/grafana/dashboard.json) and
 [deploy/grafana/alerts.yaml](deploy/grafana/alerts.yaml) (error rate, failing tools, slow tools, parse errors, failing exports).
 
+## Profiles
+
+OTLP Profiles are in public Alpha. Two complementary sources, both in the compose overlay
+(`docker compose -f deploy/compose/docker-compose.yaml -f deploy/compose/profiling.yaml up --build`,
+then Grafana → Explore → Profiles):
+
+- **The exporter itself:** `-pprof 127.0.0.1:6060` (Helm: `exporter.pprof.enabled`) serves Go pprof on its own listener,
+  never the proxy port. A Collector with the [pprof receiver](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/pprofreceiver)
+  scrapes `/debug/pprof/profile?seconds=10` and ships OTLP profiles.
+- **The MCP server, any language:** the [OpenTelemetry eBPF profiler](https://github.com/open-telemetry/opentelemetry-ebpf-profiler)
+  profiles every process on a Linux host (privileged, host PID). It labels each process with its `OTEL_SERVICE_NAME`,
+  so set that on the server to file its CPU profiles under the same service as its traces. For Kubernetes, see
+  [deploy/kubernetes/ebpf-profiler.yaml](deploy/kubernetes/ebpf-profiler.yaml) (DaemonSet).
+
+Both need a backend that accepts OTLP profiles, such as Pyroscope or a Collector started with `--feature-gates=service.profilesSupport`.
+The Alpha wire format changes between Collector releases, so keep your profilers and backend Collector on the same version
+(this repo pins 0.161.0 to match `grafana/otel-lgtm:0.35.0`).
+Profiles correlate with traces by service, instance and time window. Individual samples aren't tagged with span ids.
+
 ## Security
 
 - Payload capture is off by default, and can be limited to specific tools with `-capture-tools`.
@@ -169,8 +189,6 @@ In HTTP mode the exporter asks the upstream for uncompressed responses (`Accept-
 
 ## Roadmap
 
-- **Profiles:** OTLP Profiles are in public Alpha (Mar 2026). Server-side profiling is best done today with the
-  [OTel eBPF profiler](https://github.com/open-telemetry/opentelemetry-ebpf-profiler), and `grafana/otel-lgtm` already ships Pyroscope.
 - Client-side mode (`mcp.client.*` from the agent's point of view).
 
 ## Contributing

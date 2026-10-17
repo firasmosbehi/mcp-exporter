@@ -1,0 +1,63 @@
+# Profiles overlay (OTLP Profiles are Alpha). Adds, on top of docker-compose.yaml:
+#  - pprof-collector: scrapes the exporter's own Go pprof (-pprof) with the
+#    Collector's pprof receiver and ships OTLP profiles            (issue #11)
+#  - ebpf-profiler:   the OpenTelemetry eBPF profiler, profiling every process on
+#    the host, MCP servers of any language included; Linux only, privileged (issue #12)
+# Both send to the Pyroscope inside grafana/otel-lgtm (Grafana -> Explore -> Profiles).
+#   docker compose -f docker-compose.yaml -f profiling.yaml up --build
+services:
+  mcp-server:
+    environment:
+      PORT: "3001"
+      # The eBPF profiler labels processes by their OTEL_SERVICE_NAME, so the
+      # server's CPU profiles land next to its traces under the same service.
+      OTEL_SERVICE_NAME: everything
+
+  mcp-exporter:
+    command: ["http", "-listen", ":8080", "-upstream", "http://mcp-server:3001", "-pprof", ":6060"]
+
+  pprof-collector:
+    image: otel/opentelemetry-collector-contrib:0.161.0
+    command: ["--config=/etc/otelcol/config.yaml", "--feature-gates=service.profilesSupport"]
+    configs: [{source: pprof-collector, target: /etc/otelcol/config.yaml}]
+    depends_on: [mcp-exporter, lgtm]
+
+  ebpf-profiler:
+    image: otel/opentelemetry-collector-ebpf-profiler:0.161.0
+    command: ["--config=/etc/otelcol/config.yaml", "--feature-gates=service.profilesSupport"]
+    configs: [{source: ebpf-profiler, target: /etc/otelcol/config.yaml}]
+    privileged: true # simplest way to grant the BPF/perf capabilities it needs
+    pid: host
+    volumes: ["/sys/kernel/debug:/sys/kernel/debug:ro"]
+    depends_on: [lgtm]
+
+configs:
+  pprof-collector:
+    content: |
+      receivers:
+        pprof:
+          remote:
+            endpoint: http://mcp-exporter:6060/debug/pprof/profile?seconds=10
+            collection_interval: 15s
+      processors:
+        resource:
+          attributes: [{key: service.name, value: mcp-exporter, action: upsert}]
+      exporters:
+        otlp_grpc:
+          endpoint: lgtm:4317
+          tls: {insecure: true}
+      service:
+        pipelines:
+          profiles: {receivers: [pprof], processors: [resource], exporters: [otlp_grpc]}
+  ebpf-profiler:
+    content: |
+      receivers:
+        profiling:
+          samples_per_second: 19
+      exporters:
+        otlp_grpc:
+          endpoint: lgtm:4317
+          tls: {insecure: true}
+      service:
+        pipelines:
+          profiles: {receivers: [profiling], exporters: [otlp_grpc]}

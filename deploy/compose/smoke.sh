@@ -4,11 +4,14 @@
 # from a container on the compose network, so no host ports are needed.
 #   deploy/compose/smoke.sh          # run, then tear down
 #   KEEP=1 deploy/compose/smoke.sh   # leave the stack up for poking around
+#   PROFILES=1 deploy/compose/smoke.sh  # also the profiling overlay (Linux Docker, privileged)
 set -eu
 cd "$(dirname "$0")"
 P=mcp-smoke
 N=20
-compose() { docker compose -p "$P" -f docker-compose.yaml "$@"; }
+files="-f docker-compose.yaml"
+[ "${PROFILES:-}" = 1 ] && files="$files -f profiling.yaml"
+compose() { docker compose -p "$P" $files "$@"; }
 [ "${KEEP:-}" = 1 ] || trap 'compose down -v >/dev/null 2>&1' EXIT
 
 compose up -d --build --quiet-pull
@@ -52,5 +55,21 @@ retry sh -c 'curl -s "http://lgtm:3200/api/search?limit=5" --data-urlencode "q={
 echo "traces ok"
 retry sh -c 'curl -s -G http://lgtm:3100/loki/api/v1/query_range --data-urlencode "query={service_name=\"everything\"} | trace_id != \"\"" --data-urlencode limit=1 | grep -q "mcp request"' || fail "no trace-correlated logs in Loki"
 echo "logs ok"
+IN
+
+[ "${PROFILES:-}" = 1 ] && docker run --rm -i --network "${P}_default" curlimages/curl:8.11.1 sh <<'IN'
+set -eu
+fail() { echo "FAIL: $*"; exit 1; }
+retry() { i=0; until "$@"; do i=$((i+1)); [ $i -lt 45 ] || return 1; sleep 2; done; }
+services() { # service_name values Pyroscope has seen in the last hour
+  now=$(($(date +%s)*1000))
+  curl -s -X POST http://lgtm:4040/querier.v1.QuerierService/LabelValues -H 'Content-Type: application/json' \
+    -d "{\"name\":\"service_name\",\"start\":$((now-3600000)),\"end\":$now}"
+}
+has_service() { services | grep -q "\"$1\""; }
+retry has_service mcp-exporter || fail "no pprof-scraped profiles for mcp-exporter: $(services)"
+echo "profiles (pprof receiver) ok"
+retry has_service everything || fail "no eBPF profiles for the MCP server (service everything): $(services)"
+echo "profiles (eBPF) ok"
 IN
 echo "PASS: compose smoke test"

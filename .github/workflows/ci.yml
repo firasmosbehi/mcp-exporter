@@ -32,6 +32,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: deploy/compose/smoke.sh
-        env: {KEEP: "1"} # keep containers so the failure step can show their logs
+        # KEEP: containers stay up so the failure step can show their logs.
+        # PROFILES: also check pprof + eBPF profiles reach Pyroscope (Alpha protocol, so it can break on bumps).
+        env: {KEEP: "1", PROFILES: "1"}
       - if: failure()
-        run: docker compose -p mcp-smoke -f deploy/compose/docker-compose.yaml logs --tail 100 || true
+        run: docker compose -p mcp-smoke -f deploy/compose/docker-compose.yaml -f deploy/compose/profiling.yaml logs --tail 100 || true
