@@ -29,8 +29,13 @@ jobs:
       - name: Release notes from CHANGELOG.md
         run: |
           v="${GITHUB_REF_NAME#v}"
-          awk -v v="$v" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on && !/^\[[^]]*\]: /' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
-          test -s "$RUNNER_TEMP/notes.md" || { echo "CHANGELOG.md has no section for $v"; exit 1; }
+          section() { awk -v v="$1" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on && !/^\[[^]]*\]: /' CHANGELOG.md; }
+          section "$v" > "$RUNNER_TEMP/notes.md"
+          case "$v" in *-*) # pre-release: notes from Unreleased, which may be empty
+            [ -s "$RUNNER_TEMP/notes.md" ] || section Unreleased > "$RUNNER_TEMP/notes.md"
+            grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md" || echo "Release candidate for $v; see the commits since the last release." > "$RUNNER_TEMP/notes.md" ;;
+          esac
+          grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md" || { echo "CHANGELOG.md has no section for $v"; exit 1; }
 
       - uses: goreleaser/goreleaser-action@v7
         with: {args: "release --clean --release-notes ${{ runner.temp }}/notes.md"}
