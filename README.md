@@ -105,7 +105,8 @@ will reject tokens minted for that URL. For those, use the `mcp-remote` form abo
 ## Configuration
 
 Export is configured only through the standard
-[OTel environment variables](https://opentelemetry.io/docs/languages/sdk-configuration/):
+[OTel environment variables](https://opentelemetry.io/docs/languages/sdk-configuration/).
+For copy-paste recipes for **Grafana Cloud, Honeycomb, Datadog and SigNoz**, see [docs/backends.md](docs/backends.md).
 
 | Variable | Common values |
 |---|---|
