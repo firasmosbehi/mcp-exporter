@@ -5,6 +5,9 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- One-command demo `deploy/compose/demo.sh` with a simulated agent (`deploy/compose/demo.yaml`) exercising tools, failures, slow calls, prompts, resources, an MCP Task lifecycle, server logging and session rotation, plus dashboard and trace screenshots in the README.
+
 ## [0.3.1]
 
 ### Fixed

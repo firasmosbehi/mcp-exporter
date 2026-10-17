@@ -1,0 +1,71 @@
+# Demo overlay: a traffic generator that behaves like an agent, so the
+# dashboard, traces, logs and task metrics have something to show.
+#   deploy/compose/demo.sh            (or: docker compose -f docker-compose.yaml -f demo.yaml up --build)
+services:
+  demo-agent:
+    image: curlimages/curl:8.11.1
+    entrypoint: ["sh", "/demo-agent.sh"]
+    configs: [{source: demo-agent, target: /demo-agent.sh}]
+    depends_on: [mcp-exporter]
+    restart: unless-stopped
+
+configs:
+  demo-agent:
+    content: |
+      # A pretend agent over Streamable HTTP: weighted tool mix, failures,
+      # slow calls, prompts, resources, an MCP Task lifecycle, server logging,
+      # and a new session every ~40 rounds.
+      U=http://mcp-exporter:8080/mcp
+      H='-H Content-Type:application/json -H Accept:application/json,text/event-stream'
+      id=0
+      rpc() { id=$$((id+1)); curl -s -m 30 $$H -H "Mcp-Session-Id: $$S" $$U -d "$$(printf "$$1" $$id)"; }
+      note() { curl -s -m 10 $$H -H "Mcp-Session-Id: $$S" $$U -d "$$1" -o /dev/null; }
+      call() { rpc '{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"'"$$1"'","arguments":'"$$2"'}}' >/dev/null; }
+      start() {
+        until curl -sf -D /tmp/h $$H $$U -o /dev/null \
+          -d '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"demo-agent","version":"1.0"}}}'
+        do sleep 2; done
+        S=$$(grep -i '^mcp-session-id:' /tmp/h | tr -d '\r' | awk '{print $$2}')
+        note '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+        # Standalone GET stream, as real clients keep open: server log messages
+        # and other server-initiated traffic arrive here.
+        [ -n "$${GETPID:-}" ] && kill $$GETPID 2>/dev/null
+        curl -sN -H Accept:text/event-stream -H "Mcp-Session-Id: $$S" $$U -o /dev/null &
+        GETPID=$$!
+        call toggle-simulated-logging '{}'
+        echo "demo-agent: session $$S"
+      }
+      task() { # task-augmented call, poll until terminal, fetch the result
+        T=$$(rpc '{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"simulate-research-query","arguments":{"topic":"observability"},"task":{"ttl":60000}}}' \
+          | grep -o '"taskId":"[^"]*"' | head -1 | cut -d'"' -f4)
+        [ -n "$$T" ] || return
+        n=0
+        while [ $$n -lt 30 ]; do
+          n=$$((n+1)); sleep 1
+          rpc '{"jsonrpc":"2.0","id":%s,"method":"tasks/get","params":{"taskId":"'"$$T"'"}}' | grep -qE '"status":"(completed|failed|cancelled)"' && break
+        done
+        rpc '{"jsonrpc":"2.0","id":%s,"method":"tasks/result","params":{"taskId":"'"$$T"'"}}' >/dev/null
+      }
+      start
+      round=0
+      while true; do
+        round=$$((round+1))
+        case $$((RANDOM % 20)) in
+          0|1|2|3|4|5) call echo '{"message":"hello"}' ;;
+          6|7|8)       call get-sum "{\"a\":$$((RANDOM % 100)),\"b\":$$((RANDOM % 100))}" ;;
+          9|10)        call get-structured-content '{"location":"Chicago"}' ;;
+          11)          call get-tiny-image '{}' ;;
+          12)          call trigger-long-running-operation "{\"duration\":$$((2 + RANDOM % 4)),\"steps\":2}" ;;
+          13)          call search-web '{"q":"x"}' ;;  # no such tool: a failing call
+          14)          call get-sum '{"a":"not a number"}' ;;  # invalid arguments
+          15)          rpc '{"jsonrpc":"2.0","id":%s,"method":"prompts/get","params":{"name":"simple-prompt"}}' >/dev/null ;;
+          16)          rpc '{"jsonrpc":"2.0","id":%s,"method":"resources/read","params":{"uri":"demo://resource/static/document/features.md"}}' >/dev/null ;;
+          17)          rpc '{"jsonrpc":"2.0","id":%s,"method":"tools/list"}' >/dev/null ;;
+          *)           task ;;
+        esac
+        if [ $$((round % 40)) -eq 0 ]; then
+          curl -s -m 10 -X DELETE -H "Mcp-Session-Id: $$S" $$U -o /dev/null
+          start
+        fi
+        sleep 0.$$((2 + RANDOM % 6))
+      done

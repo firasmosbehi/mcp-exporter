@@ -16,6 +16,13 @@ client ──► mcp-exporter ──► MCP server
               └─ /metrics (Prometheus pull, optional)
 ```
 
+![MCP Servers dashboard, fed by the demo](docs/images/dashboard.png)
+
+**Try it in one command:** `deploy/compose/demo.sh` starts an MCP server, the exporter, Grafana/Prometheus/Tempo/Loki
+and a simulated agent, then opens on the dashboard above at http://localhost:3000/d/mcp-exporter.
+The simulated agent calls tools (some fail on purpose), reads prompts and resources, runs a slow operation, and runs an MCP Task end to end.
+See [Demo](#demo).
+
 | Transport | Command |
 |---|---|
 | stdio (local servers) | `mcp-exporter stdio -- <server command> [args...]` |
@@ -101,6 +108,26 @@ mcp-exporter http -role client -listen 127.0.0.1:8080 -upstream https://mcp.exam
 The `Authorization` header and other headers are forwarded but never recorded. In HTTP client mode, the agent sees the proxy's URL.
 Servers that enforce the OAuth resource indicator / token audience (RFC 8707, required by the MCP authorization spec)
 will reject tokens minted for that URL. For those, use the `mcp-remote` form above.
+
+## Demo
+
+```sh
+deploy/compose/demo.sh          # start: http://localhost:3000/d/mcp-exporter
+deploy/compose/demo.sh down     # stop and clean up
+PROFILES=1 deploy/compose/demo.sh   # also CPU profiles (Linux Docker): Grafana → Explore → Profiles
+```
+
+The `demo-agent` service ([deploy/compose/demo.yaml](deploy/compose/demo.yaml)) is a plain shell script speaking Streamable HTTP.
+It keeps a session open with its own GET stream, so server log messages flow. It cycles through a weighted mix:
+`echo`, `get-sum`, structured content, images, a 2–5 s long-running operation, a call to a tool that doesn't exist,
+a call with invalid arguments, prompts, resources, and the task-required `simulate-research-query`
+(create → poll `tasks/get` → `tasks/result`). Every ~40 rounds it ends the session and starts a new one.
+Point your own MCP client at `http://localhost:8080/mcp` to add your traffic alongside it.
+
+![A tasks/result span in Tempo](docs/images/trace.png)
+
+The demo agent sends no trace context, so each request is its own trace, as with any uninstrumented client.
+With an instrumented agent, MCP spans nest under the agent's own spans through `params._meta`.
 
 ## Configuration
 
