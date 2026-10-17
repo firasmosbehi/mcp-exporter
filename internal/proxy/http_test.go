@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/firasmosbehi/mcp-exporter/internal/observe"
 )
@@ -185,5 +187,90 @@ func TestHostPort(t *testing.T) {
 		if got := hostPort(u); got != want {
 			t.Errorf("hostPort(%s) = %s, want %s", in, got, want)
 		}
+	}
+}
+
+// Issue #7: HTTP paths beyond "one POST, one response on the same stream".
+func TestHTTPProxySessionFlows(t *testing.T) {
+	spans := tracetest.NewInMemoryExporter()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSyncer(spans)))
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	sse := func(w http.ResponseWriter, events ...string) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for i, e := range events {
+			io.WriteString(w, "id: "+strconv.Itoa(i)+"\ndata: "+e+"\n\n")
+		}
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body := string(b)
+		switch {
+		case r.Method == http.MethodGet && r.Header.Get("Last-Event-ID") != "":
+			// Resumed stream redelivers the response to request 3.
+			sse(w, `{"jsonrpc":"2.0","id":3,"result":{"content":[]}}`)
+		case r.Method == http.MethodGet:
+			// Standalone stream: the server asks the client to sample.
+			sse(w, `{"jsonrpc":"2.0","id":"srv-1","method":"sampling/createMessage","params":{"maxTokens":5}}`)
+		case strings.HasPrefix(strings.TrimSpace(body), "["): // batch
+			sse(w, `{"jsonrpc":"2.0","id":1,"result":{"content":[]}}`, `{"jsonrpc":"2.0","id":2,"result":{"content":[]}}`)
+		default: // responses, notifications, and requests answered later
+			w.WriteHeader(http.StatusAccepted)
+		}
+	}))
+	defer upstream.Close()
+	up, _ := url.Parse(upstream.URL)
+	proxy := httptest.NewServer(HTTP(observe.NewTracker(observe.Options{Transport: "tcp"}), up))
+	defer proxy.Close()
+
+	do := func(method, body string, hdr ...string) {
+		req, _ := http.NewRequest(method, proxy.URL+"/mcp", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		req.Header.Set("Mcp-Session-Id", "s1")
+		for i := 0; i < len(hdr); i += 2 {
+			req.Header.Set(hdr[i], hdr[i+1])
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+
+	do("POST", `[{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"a"}},{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"b"}}]`)
+	do("GET", "")
+	do("POST", `{"jsonrpc":"2.0","id":"srv-1","result":{"model":"m","role":"assistant","content":{"type":"text","text":"hi"}}}`)
+	do("POST", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"slow"}}`)
+	do("GET", "", "Last-Event-ID", "7")
+	do("POST", `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"abandoned"}}`)
+	do("POST", `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":4}}`)
+
+	byName := map[string]tracetest.SpanStub{}
+	for _, s := range spans.GetSpans() {
+		byName[s.Name] = s
+	}
+	for _, name := range []string{"tools/call a", "tools/call b", "sampling/createMessage", "tools/call slow", "tools/call abandoned"} {
+		if _, ok := byName[name]; !ok {
+			t.Errorf("missing span %q (have %d spans)", name, len(byName))
+		}
+	}
+	if s := byName["sampling/createMessage"]; s.SpanKind != trace.SpanKindClient {
+		t.Errorf("server-initiated request should be a CLIENT span, got %v", s.SpanKind)
+	}
+	errType := func(s tracetest.SpanStub) string {
+		for _, kv := range s.Attributes {
+			if kv.Key == "error.type" {
+				return kv.Value.AsString()
+			}
+		}
+		return ""
+	}
+	if e := errType(byName["tools/call abandoned"]); e != "cancelled" {
+		t.Errorf("cancelled request error.type = %q", e)
+	}
+	if e := errType(byName["tools/call slow"]); e != "" {
+		t.Errorf("request answered on a resumed stream should succeed, error.type = %q", e)
 	}
 }
