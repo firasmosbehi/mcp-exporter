@@ -6,7 +6,11 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- A wiki (source in `docs/wiki/`, published by `.github/workflows/wiki.yml`): Getting Started, Demo, Kubernetes, Client Mode, Backends, Configuration, Telemetry Reference, Architecture, Profiles, Security, Troubleshooting, Releases, Development.
 - One-command demo `deploy/compose/demo.sh` with a simulated agent (`deploy/compose/demo.yaml`) exercising tools, failures, slow calls, prompts, resources, an MCP Task lifecycle, server logging and session rotation, plus dashboard and trace screenshots in the README.
+
+### Fixed
+- Docs: the Prometheus exporter binds `localhost` by default. Containers need `OTEL_EXPORTER_PROMETHEUS_HOST=0.0.0.0`.
 
 ## [0.3.1]
 
