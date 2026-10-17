@@ -15,6 +15,7 @@ Requires Go (version in `go.mod`), plus Docker for the end-to-end test.
 ```sh
 go test -race ./...                      # unit tests
 go test ./internal/observe -bench .      # per-request overhead
+go test ./internal/jsonrpc -run '^$' -fuzz FuzzParse -fuzztime 1m   # fuzz (also FuzzSSEObserver, FuzzGunzip, FuzzFrame)
 gofmt -l . && go vet ./...               # what CI checks
 deploy/compose/smoke.sh                  # end-to-end: compose stack + assertions (needs Docker)
 ```

@@ -5,6 +5,13 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Crash:** a request with `"params": {"_meta": null}` (or `"params": null`) panicked while injecting trace context. That killed the process in stdio mode, and failed the request in HTTP mode. It affected every release up to 0.3.0, and the workaround is `-inject-context=false`. Found by fuzzing (#38).
+- Injecting trace context no longer HTML-escapes `&`, `<` and `>` in request ids and arguments (#38).
+
+### Added
+- Fuzz targets for the JSON-RPC parser, the SSE observer, bounded gunzip and `Tracker.Frame`, run briefly in CI on every PR (#38).
+
 ## [0.3.0]
 
 ### Added

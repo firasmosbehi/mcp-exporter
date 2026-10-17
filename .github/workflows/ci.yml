@@ -15,6 +15,11 @@ jobs:
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -race ./...
+      - name: Fuzz (short; crashers land in testdata/fuzz as regression seeds)
+        run: |
+          for t in jsonrpc:FuzzParse proxy:FuzzSSEObserver proxy:FuzzGunzip observe:FuzzFrame; do
+            go test ./internal/${t%%:*} -run '^$' -fuzz "^${t#*:}\$" -fuzztime 20s
+          done
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - uses: azure/setup-helm@v5
       - run: helm lint deploy/helm/mcp-exporter
