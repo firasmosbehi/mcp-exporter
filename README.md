@@ -1,5 +1,9 @@
 # mcp-exporter
 
+[![ci](https://github.com/firasmosbehi/mcp-exporter/actions/workflows/ci.yml/badge.svg)](https://github.com/firasmosbehi/mcp-exporter/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/firasmosbehi/mcp-exporter.svg)](https://pkg.go.dev/github.com/firasmosbehi/mcp-exporter)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 OpenTelemetry **traces, metrics and logs for any MCP server**, with no code changes.
 `mcp-exporter` is a transparent proxy that sits between an MCP client and server,
 understands the JSON-RPC traffic, and emits telemetry that follows the
@@ -130,3 +134,12 @@ SSE streams are observed as they pass through and are never buffered or modified
   [OTel eBPF profiler](https://github.com/open-telemetry/opentelemetry-ebpf-profiler), and `grafana/otel-lgtm` already ships Pyroscope.
 - Client-side mode (`mcp.client.*` from the agent's point of view).
 - Upstream readiness checks for `/readyz`.
+
+## Contributing
+
+Issues and PRs are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md), the [milestones](https://github.com/firasmosbehi/mcp-exporter/milestones),
+and the [code of conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
+## License
+
+[Apache License 2.0](LICENSE)
