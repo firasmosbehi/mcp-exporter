@@ -18,6 +18,11 @@ exporter:
     OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
     OTEL_TRACES_SAMPLER: parentbased_traceidratio
     OTEL_TRACES_SAMPLER_ARG: "1.0"
+  # Go pprof of the exporter itself, for a Collector pprof receiver to scrape
+  # (http://<pod>:6060/debug/pprof/profile?seconds=10). Restrict with a NetworkPolicy.
+  pprof:
+    enabled: false
+    port: 6060
   # Pull metrics with Prometheus instead of pushing them over OTLP.
   prometheus:
     enabled: false

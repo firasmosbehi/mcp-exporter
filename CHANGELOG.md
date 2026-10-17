@@ -5,6 +5,13 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `-pprof <addr>` serves the exporter's Go pprof on a separate listener, and Helm gets `exporter.pprof.enabled` (#11).
+- Profiles overlay `deploy/compose/profiling.yaml`: a Collector pprof receiver scraping the exporter, plus the OpenTelemetry eBPF profiler profiling the MCP server, both into Pyroscope. There's also a Kubernetes DaemonSet in `deploy/kubernetes/ebpf-profiler.yaml`, and CI's e2e test now checks that profiles arrive (#11, #12).
+
+### Changed
+- The reference stack moves from `grafana/otel-lgtm` 0.11.10 to 0.35.0, whose Collector speaks the current OTLP Profiles protocol.
+
 ## [0.2.0]
 
 ### Added

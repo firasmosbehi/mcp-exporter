@@ -1,0 +1,77 @@
+# OpenTelemetry eBPF profiler as a DaemonSet: CPU profiles for every process on
+# each node, MCP servers in any language included, shipped as OTLP profiles
+# (Alpha). Processes are labelled with their OTEL_SERVICE_NAME env var when set,
+# so set it on MCP server containers to line profiles up with their traces.
+#   kubectl apply -f deploy/kubernetes/ebpf-profiler.yaml
+# Edit the exporter endpoint below: any OTLP backend that accepts profiles
+# (e.g. Pyroscope, or a Collector with the service.profilesSupport gate).
+apiVersion: v1
+kind: Namespace
+metadata: {name: ebpf-profiler}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: ebpf-profiler, namespace: ebpf-profiler}
+data:
+  config.yaml: |
+    receivers:
+      profiling:
+        samples_per_second: 19
+    processors:
+      k8s_attributes: {}
+    exporters:
+      otlp_grpc:
+        endpoint: otel-collector.observability:4317
+        tls: {insecure: true}
+    service:
+      pipelines:
+        profiles: {receivers: [profiling], processors: [k8s_attributes], exporters: [otlp_grpc]}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: ebpf-profiler, namespace: ebpf-profiler}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: ebpf-profiler}
+rules: # for k8s_attributes: pod and namespace metadata
+  - apiGroups: [""]
+    resources: [pods, namespaces, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: ebpf-profiler}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: ebpf-profiler}
+subjects: [{kind: ServiceAccount, name: ebpf-profiler, namespace: ebpf-profiler}]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: ebpf-profiler, namespace: ebpf-profiler}
+spec:
+  selector: {matchLabels: {app: ebpf-profiler}}
+  template:
+    metadata: {labels: {app: ebpf-profiler}}
+    spec:
+      serviceAccountName: ebpf-profiler
+      hostPID: true
+      containers:
+        - name: profiler
+          image: otel/opentelemetry-collector-ebpf-profiler:0.161.0
+          args: [--config=/etc/otelcol/config.yaml, --feature-gates=service.profilesSupport]
+          securityContext: {privileged: true}
+          env:
+            - name: K8S_NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          volumeMounts:
+            - {name: config, mountPath: /etc/otelcol}
+            - {name: debugfs, mountPath: /sys/kernel/debug, readOnly: true}
+      volumes:
+        - {name: config, configMap: {name: ebpf-profiler}}
+        - {name: debugfs, hostPath: {path: /sys/kernel/debug}}

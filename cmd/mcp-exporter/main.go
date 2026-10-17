@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"net/url"
 	"os"
 	"os/signal"
@@ -67,6 +68,7 @@ func run(mode string, args []string) (int, error) {
 	inject := fs.Bool("inject-context", true, "add W3C trace context to params._meta of client requests that lack it")
 	capture := fs.Bool("capture-payloads", false, "record redacted tool arguments and results on spans")
 	maxPayload := fs.Int("max-payload", 4096, "truncate captured payloads to this many bytes")
+	pprofAddr := fs.String("pprof", "", "serve Go pprof profiles of the exporter on this address, e.g. 127.0.0.1:6060 (off by default; exposes process internals)")
 	captureTools := fs.String("capture-tools", "", "comma-separated tools to capture payloads for (default: all, when -capture-payloads)")
 	redactKeys := fs.String("redact-keys", observe.DefaultRedactKeys, "regexp of object keys whose values are redacted from captured payloads and server logs")
 
@@ -133,6 +135,10 @@ func run(mode string, args []string) (int, error) {
 		}
 	}()
 
+	if *pprofAddr != "" {
+		go servePprof(ctx, *pprofAddr)
+	}
+
 	if mode == "stdio" {
 		if fs.NArg() == 0 {
 			return 2, errors.New("stdio: missing server command after --")
@@ -191,4 +197,24 @@ func run(mode string, args []string) (int, error) {
 		return 0, nil
 	}
 	return 1, err
+}
+
+// servePprof exposes /debug/pprof/ on its own listener, never on the proxy
+// port, for scraping by the Collector's pprof receiver or Pyroscope.
+func servePprof(ctx context.Context, addr string) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index) // also serves heap, goroutine, allocs, ...
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		<-ctx.Done()
+		srv.Close()
+	}()
+	slog.Info("serving pprof", "addr", addr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("pprof listener", "err", err)
+	}
 }

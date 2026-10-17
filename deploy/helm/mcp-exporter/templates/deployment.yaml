@@ -39,6 +39,9 @@ spec:
             - http
             - -listen=:{{ .Values.exporter.port }}
             - -upstream=http://127.0.0.1:{{ .Values.server.port }}
+            {{- if .Values.exporter.pprof.enabled }}
+            - -pprof=:{{ .Values.exporter.pprof.port }}
+            {{- end }}
             {{- range .Values.exporter.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -65,6 +68,9 @@ spec:
             - {name: mcp, containerPort: {{ .Values.exporter.port }}}
             {{- if .Values.exporter.prometheus.enabled }}
             - {name: metrics, containerPort: {{ .Values.exporter.prometheus.port }}}
+            {{- end }}
+            {{- if .Values.exporter.pprof.enabled }}
+            - {name: pprof, containerPort: {{ .Values.exporter.pprof.port }}}
             {{- end }}
           readinessProbe:
             httpGet: {path: /readyz, port: mcp}
