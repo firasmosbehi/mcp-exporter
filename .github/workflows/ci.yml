@@ -18,6 +18,14 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - uses: azure/setup-helm@v5
       - run: helm lint deploy/helm/mcp-exporter
+  windows:
+    # stdio mode refuses console exporters here (no fd-level stdout swap); keep that tested.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: {go-version-file: go.mod}
+      - run: go test ./...
   e2e:
     # Real MCP server -> mcp-exporter -> Prometheus/Tempo/Loki, with assertions.
     runs-on: ubuntu-latest
