@@ -28,6 +28,9 @@ See [Demo](#demo).
 | stdio (local servers) | `mcp-exporter stdio -- <server command> [args...]` |
 | Streamable HTTP | `mcp-exporter http -listen :8080 -upstream http://server:3001` |
 
+📖 **Full documentation: [the wiki](https://github.com/firasmosbehi/mcp-exporter/wiki)**: getting started, Kubernetes, client mode,
+telemetry reference, architecture, profiles, security, troubleshooting.
+
 ## Install
 
 ```sh
@@ -139,7 +142,7 @@ For copy-paste recipes for **Grafana Cloud, Honeycomb, Datadog and SigNoz**, see
 |---|---|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://collector:4318` (`OTEL_EXPORTER_OTLP_PROTOCOL=grpc` for `:4317`) |
 | `OTEL_TRACES_EXPORTER` / `OTEL_LOGS_EXPORTER` | `otlp` (default), `console`, `none` |
-| `OTEL_METRICS_EXPORTER` | `otlp` (default), `prometheus` (serves `:9464/metrics`), `console`, `none` |
+| `OTEL_METRICS_EXPORTER` | `otlp` (default), `prometheus` (serves `localhost:9464/metrics`; in containers set `OTEL_EXPORTER_PROMETHEUS_HOST=0.0.0.0`), `console`, `none` |
 | `OTEL_TRACES_SAMPLER` (+ `_ARG`) | `parentbased_traceidratio` + `0.1` |
 | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | identify the server (`deployment.environment.name=prod,...`) |
 | `OTEL_EXPORTER_OTLP_HEADERS`, `_CERTIFICATE`, `_CLIENT_CERTIFICATE`, `_CLIENT_KEY` | backend auth and mTLS |

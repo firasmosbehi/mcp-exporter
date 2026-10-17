@@ -1,0 +1,28 @@
+name: wiki
+# Publishes docs/wiki/ to the GitHub wiki. The wiki repo only exists after its
+# first page is saved in the web UI; until then this warns and skips.
+on:
+  push: {branches: [main], paths: ["docs/wiki/**"]}
+  workflow_dispatch:
+permissions: {contents: write} # covers pushing to the wiki repo
+concurrency: {group: wiki}
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Sync docs/wiki to the wiki
+        env: {TOKEN: "${{ github.token }}", REPO: "${{ github.repository }}"}
+        run: |
+          if ! git clone -q --depth 1 "https://x-access-token:${TOKEN}@github.com/${REPO}.wiki.git" wiki; then
+            # Not a build failure, so main stays green: warn and skip.
+            echo "::warning::The wiki isn't initialized yet. Open https://github.com/${REPO}/wiki, click 'Create the first page', save it, then re-run this workflow (Actions → wiki → Run workflow)."
+            exit 0
+          fi
+          rsync -a --delete --exclude .git docs/wiki/ wiki/
+          cd wiki
+          git add -A
+          if git diff --cached --quiet; then echo "wiki already up to date"; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Sync from ${GITHUB_SHA::7}"
+          git push -q
