@@ -36,6 +36,9 @@ func (d Dir) other() Dir { return 1 - d }
 
 type Options struct {
 	Transport       string          // network.transport: "pipe" (stdio) or "tcp" (HTTP)
+	Role            string          // side the exporter observes from: "server" (default, next to the MCP server) or "client" (next to the agent)
+	ServerAddress   string          // server.address on CLIENT spans, when known
+	ServerPort      int             // server.port, with ServerAddress
 	InjectContext   bool            // write traceparent into params._meta of client requests lacking one
 	CapturePayloads bool            // record redacted tool arguments/results (opt-in per semconv)
 	MaxPayload      int             // truncate captured payloads to this many bytes
@@ -86,6 +89,7 @@ type pending struct {
 	span       trace.Span
 	start      time.Time
 	dir        Dir
+	kind       trace.SpanKind // SERVER: request received by the observed side; CLIENT: sent by it
 	method     string
 	tool       string
 	clientName string
@@ -118,6 +122,9 @@ func NewTracker(opts Options) *Tracker {
 	if opts.MaxNames <= 0 {
 		opts.MaxNames = 500
 	}
+	if opts.Role != "client" {
+		opts.Role = "server"
+	}
 	m := otel.Meter(scopeName)
 	t := &Tracker{
 		opts:     opts,
@@ -131,17 +138,19 @@ func NewTracker(opts Options) *Tracker {
 	}
 	// Instrument creation only fails on invalid names; ours are constants.
 	t.serverDur, _ = m.Float64Histogram("mcp.server.operation.duration", metric.WithUnit("s"),
-		metric.WithDescription("Duration of MCP requests handled by the server."), metric.WithExplicitBucketBoundaries(durBuckets...))
+		metric.WithDescription("Duration of MCP requests received by the observed side."), metric.WithExplicitBucketBoundaries(durBuckets...))
 	t.clientDur, _ = m.Float64Histogram("mcp.client.operation.duration", metric.WithUnit("s"),
-		metric.WithDescription("Duration of server-initiated MCP requests (sampling, elicitation, roots)."), metric.WithExplicitBucketBoundaries(durBuckets...))
-	t.sessDur, _ = m.Float64Histogram("mcp.server.session.duration", metric.WithUnit("s"),
+		metric.WithDescription("Duration of MCP requests sent by the observed side, until the response."), metric.WithExplicitBucketBoundaries(durBuckets...))
+	// Session and in-flight instruments are named for the observed side (semconv
+	// defines mcp.server.session.duration and mcp.client.session.duration).
+	t.sessDur, _ = m.Float64Histogram("mcp."+opts.Role+".session.duration", metric.WithUnit("s"),
 		metric.WithDescription("Duration of MCP sessions."), metric.WithExplicitBucketBoundaries(durBuckets...))
 	t.taskDur, _ = m.Float64Histogram("mcp.task.duration", metric.WithUnit("s"),
 		metric.WithDescription("Time from MCP task creation to the first terminal status observed."), metric.WithExplicitBucketBoundaries(taskBuckets...))
 	t.msgSize, _ = m.Int64Histogram("mcp.message.size", metric.WithUnit("By"),
 		metric.WithDescription("Size of JSON-RPC frames."))
-	t.inflight, _ = m.Int64UpDownCounter("mcp.server.requests.inflight", metric.WithUnit("{request}"))
-	t.sessActive, _ = m.Int64UpDownCounter("mcp.server.sessions.active", metric.WithUnit("{session}"))
+	t.inflight, _ = m.Int64UpDownCounter("mcp."+opts.Role+".requests.inflight", metric.WithUnit("{request}"))
+	t.sessActive, _ = m.Int64UpDownCounter("mcp."+opts.Role+".sessions.active", metric.WithUnit("{session}"))
 	t.parseErrs, _ = m.Int64Counter("mcp_exporter.parse.errors", metric.WithUnit("{frame}"),
 		metric.WithDescription("Frames that were not valid JSON-RPC and were passed through unobserved."))
 	return t
@@ -194,9 +203,10 @@ func (t *Tracker) startRequest(ctx context.Context, dir Dir, scope, sess string,
 			opts = append(opts, trace.WithLinks(trace.Link{SpanContext: sc}))
 		}
 	}
-	kind := trace.SpanKindServer
-	if dir == ServerToClient {
-		kind = trace.SpanKindClient
+	// Requests the observed side receives are SERVER spans, those it sends CLIENT spans.
+	kind := trace.SpanKindClient
+	if (t.opts.Role == "server") == (dir == ClientToServer) {
+		kind = trace.SpanKindServer
 	}
 
 	spanAttrs := []attribute.KeyValue{
@@ -210,6 +220,12 @@ func (t *Tracker) startRequest(ctx context.Context, dir Dir, scope, sess string,
 	}
 	if sess != "" {
 		spanAttrs = append(spanAttrs, attribute.String("mcp.session.id", hashID(sess)))
+	}
+	if kind == trace.SpanKindClient && t.opts.ServerAddress != "" {
+		spanAttrs = append(spanAttrs, attribute.String("server.address", t.opts.ServerAddress))
+		if t.opts.ServerPort != 0 {
+			spanAttrs = append(spanAttrs, attribute.Int("server.port", t.opts.ServerPort))
+		}
 	}
 	t.mu.Lock()
 	if s := t.sessions[sess]; s != nil {
@@ -257,7 +273,7 @@ func (t *Tracker) startRequest(ctx context.Context, dir Dir, scope, sess string,
 	opts = append(opts, trace.WithSpanKind(kind), trace.WithAttributes(spanAttrs...))
 	spanCtx, span := t.tracer.Start(parent, name, opts...)
 
-	pd := &pending{ctx: spanCtx, span: span, start: time.Now(), dir: dir, method: m.Method, tool: p.Name,
+	pd := &pending{ctx: spanCtx, span: span, start: time.Now(), dir: dir, kind: kind, method: m.Method, tool: p.Name,
 		augmented: len(p.Task) > 0, taskRef: taskRef,
 		attrs: metricAttrs, base: metric.WithAttributes(metricAttrs...)}
 	if p.ClientInfo != nil {
@@ -304,7 +320,7 @@ func (t *Tracker) finish(pd *pending, sess string, m *jsonrpc.Message, errType s
 		code := strconv.Itoa(m.Error.Code)
 		span.SetAttributes(attribute.String("rpc.response.status_code", code))
 		pd.attrs = append(pd.attrs, attribute.String("rpc.response.status_code", code))
-		if pd.dir == ServerToClient || !serverNonErrors[m.Error.Code] {
+		if pd.kind == trace.SpanKindClient || !serverNonErrors[m.Error.Code] {
 			errType = code
 			span.SetStatus(codes.Error, m.Error.Message)
 		}
@@ -353,11 +369,13 @@ func (t *Tracker) finish(pd *pending, sess string, m *jsonrpc.Message, errType s
 
 	dur := time.Since(pd.start)
 	attrs := metric.WithAttributes(pd.attrs...)
-	if pd.dir == ClientToServer {
+	if pd.kind == trace.SpanKindServer {
 		t.serverDur.Record(pd.ctx, dur.Seconds(), attrs)
-		t.inflight.Add(pd.ctx, -1, pd.base)
 	} else {
 		t.clientDur.Record(pd.ctx, dur.Seconds(), attrs)
+	}
+	if pd.dir == ClientToServer {
+		t.inflight.Add(pd.ctx, -1, pd.base)
 	}
 	logAttrs := []any{"mcp.method.name", pd.method, "duration_ms", float64(dur.Microseconds()) / 1000}
 	if errType != "" {

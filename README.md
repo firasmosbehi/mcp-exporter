@@ -79,6 +79,29 @@ helm install weather oci://ghcr.io/firasmosbehi/charts/mcp-exporter --version 0.
 #   --set exporter.prometheus.enabled=true --set serviceMonitor.enabled=true
 ```
 
+### Client mode: remote MCP servers you don't run
+
+`-role client` observes from the agent's side, for SaaS or third-party MCP endpoints:
+- Requests the agent sends become `CLIENT` spans with `server.address`/`server.port`, recorded in `mcp.client.operation.duration`, where every JSON-RPC error code counts as an error.
+- Session metrics become `mcp.client.session.duration` and `mcp.client.sessions.active`.
+- Requests the server sends the agent (sampling, elicitation) are `SERVER` spans.
+
+```jsonc
+// Recommended: wrap mcp-remote, so OAuth runs against the real server URL
+"deepwiki": {
+  "command": "mcp-exporter",
+  "args": ["stdio", "-role", "client", "--", "npx", "-y", "mcp-remote", "https://mcp.deepwiki.com/mcp"]
+}
+```
+```sh
+# Or as an HTTP proxy for the agent (the agent connects to http://localhost:8080/mcp)
+mcp-exporter http -role client -listen 127.0.0.1:8080 -upstream https://mcp.example.com
+```
+
+The `Authorization` header and other headers are forwarded but never recorded. In HTTP client mode, the agent sees the proxy's URL.
+Servers that enforce the OAuth resource indicator / token audience (RFC 8707, required by the MCP authorization spec)
+will reject tokens minted for that URL. For those, use the `mcp-remote` form above.
+
 ## Configuration
 
 Export is configured only through the standard
@@ -98,6 +121,7 @@ Flags (`mcp-exporter <mode> -h`):
 | Flag | Default | |
 |---|---|---|
 | `-service-name` | `mcp-server` | used when `OTEL_SERVICE_NAME` is unset |
+| `-role` | `server` | `client` to observe from the agent's side (see Client mode) |
 | `-inject-context` | `true` | adds `traceparent` to `params._meta` of client requests that lack it, so instrumented servers join the trace |
 | `-capture-payloads` | `false` | records tool arguments and results on spans, redacted and truncated |
 | `-max-payload` | `4096` | truncation limit for captured payloads |
@@ -186,10 +210,6 @@ Profiles correlate with traces by service, instance and time window. Individual 
 About 8 µs of CPU per request/response pair, including trace-context injection (`go test ./internal/observe -bench .`).
 SSE streams are observed as they pass through and are never buffered or modified.
 In HTTP mode the exporter asks the upstream for uncompressed responses (`Accept-Encoding: identity`), and gzip request bodies are forwarded decompressed. Both are needed to observe the traffic, and the sidecar hop is local.
-
-## Roadmap
-
-- Client-side mode (`mcp.client.*` from the agent's point of view).
 
 ## Contributing
 

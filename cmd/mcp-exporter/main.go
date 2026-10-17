@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -68,6 +69,7 @@ func run(mode string, args []string) (int, error) {
 	inject := fs.Bool("inject-context", true, "add W3C trace context to params._meta of client requests that lack it")
 	capture := fs.Bool("capture-payloads", false, "record redacted tool arguments and results on spans")
 	maxPayload := fs.Int("max-payload", 4096, "truncate captured payloads to this many bytes")
+	role := fs.String("role", "server", `side to observe from: "server" (next to the MCP server) or "client" (next to the agent, e.g. in front of a remote server)`)
 	pprofAddr := fs.String("pprof", "", "serve Go pprof profiles of the exporter on this address, e.g. 127.0.0.1:6060 (off by default; exposes process internals)")
 	captureTools := fs.String("capture-tools", "", "comma-separated tools to capture payloads for (default: all, when -capture-payloads)")
 	redactKeys := fs.String("redact-keys", observe.DefaultRedactKeys, "regexp of object keys whose values are redacted from captured payloads and server logs")
@@ -101,6 +103,9 @@ func run(mode string, args []string) (int, error) {
 		}
 	}
 
+	if *role != "server" && *role != "client" {
+		return 2, fmt.Errorf("-role must be server or client, got %q", *role)
+	}
 	keys, err := regexp.Compile(*redactKeys)
 	if err != nil {
 		return 2, fmt.Errorf("-redact-keys: %w", err)
@@ -122,10 +127,25 @@ func run(mode string, args []string) (int, error) {
 	if err != nil {
 		return 1, fmt.Errorf("telemetry setup: %w", err)
 	}
-	t := observe.NewTracker(observe.Options{
-		Transport: transport, InjectContext: *inject, CapturePayloads: *capture, MaxPayload: *maxPayload,
+	opts := observe.Options{
+		Transport: transport, Role: *role, InjectContext: *inject, CapturePayloads: *capture, MaxPayload: *maxPayload,
 		CaptureTools: tools, RedactKeys: keys,
-	})
+	}
+	var up *url.URL
+	if mode == "http" {
+		if *upstream == "" {
+			return 2, errors.New("http: -upstream is required")
+		}
+		if up, err = url.Parse(*upstream); err != nil || up.Host == "" {
+			return 2, fmt.Errorf("http: bad -upstream %q", *upstream)
+		}
+		opts.ServerAddress = up.Hostname()
+		opts.ServerPort, _ = strconv.Atoi(up.Port())
+		if opts.ServerPort == 0 {
+			opts.ServerPort = map[string]int{"http": 80, "https": 443}[up.Scheme]
+		}
+	}
+	t := observe.NewTracker(opts)
 	defer func() {
 		t.Close()
 		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -146,13 +166,6 @@ func run(mode string, args []string) (int, error) {
 		return proxy.Stdio(ctx, t, fs.Args(), os.Stdin, protocolOut)
 	}
 
-	if *upstream == "" {
-		return 2, errors.New("http: -upstream is required")
-	}
-	up, err := url.Parse(*upstream)
-	if err != nil || up.Host == "" {
-		return 2, fmt.Errorf("http: bad -upstream %q", *upstream)
-	}
 	srv := &http.Server{Addr: *listen, Handler: proxy.HTTP(t, up), ReadHeaderTimeout: 10 * time.Second}
 	if *clientCA != "" {
 		pem, err := os.ReadFile(*clientCA)
