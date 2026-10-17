@@ -17,3 +17,12 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - uses: azure/setup-helm@v4
       - run: helm lint deploy/helm/mcp-exporter
+  e2e:
+    # Real MCP server -> mcp-exporter -> Prometheus/Tempo/Loki, with assertions.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: deploy/compose/smoke.sh
+        env: {KEEP: "1"} # keep containers so the failure step can show their logs
+      - if: failure()
+        run: docker compose -p mcp-smoke -f deploy/compose/docker-compose.yaml logs --tail 100 || true
