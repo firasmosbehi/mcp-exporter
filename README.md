@@ -151,7 +151,7 @@ with MCP levels mapped to OTel severities, and the server's stderr in stdio mode
   - **by key:** values under keys matching `-redact-keys` (default `(?i)pass|token|secret|key|auth|credential|cookie|session`)
   - **by value:** JWTs, `Bearer` tokens, `sk-…`, `gh[pousr]_…`, Slack `xox…` tokens and AWS access key ids, wherever they appear
 - `Authorization`, cookies and other headers are never recorded. `Mcp-Session-Id` is exported only as a truncated SHA-256.
-- In stdio mode, stdout is reserved at the file-descriptor level for protocol frames, so a console exporter or a stray print can't corrupt the stream.
+- In stdio mode, stdout is reserved at the file-descriptor level for protocol frames, so a console exporter or a stray print can't corrupt the stream. Windows has no equivalent, so there stdio mode refuses `OTEL_*_EXPORTER=console` with an error.
 - Release images are distroless, run as a non-root user, and are cosign-signed, with SBOMs ([.goreleaser.yaml](.goreleaser.yaml)).
 
 ## Overhead
