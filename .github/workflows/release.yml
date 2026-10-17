@@ -24,7 +24,7 @@ jobs:
         with: {registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}"}
       - uses: sigstore/cosign-installer@v3
       - uses: anchore/sbom-action/download-syft@v0
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
 
       - name: Release notes from CHANGELOG.md
         run: |
