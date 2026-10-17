@@ -101,6 +101,8 @@ Flags (`mcp-exporter <mode> -h`):
 | `-inject-context` | `true` | adds `traceparent` to `params._meta` of client requests that lack it, so instrumented servers join the trace |
 | `-capture-payloads` | `false` | records tool arguments and results on spans, redacted and truncated |
 | `-max-payload` | `4096` | truncation limit for captured payloads |
+| `-capture-tools` | all | comma-separated allowlist of tools whose payloads are captured |
+| `-redact-keys` | see Security | regexp of object keys whose values are redacted (replaces the default) |
 | `-listen`, `-upstream` | `:8080`, — | http mode; request paths pass through to the upstream base URL |
 | — | — | http mode: `GET /healthz` is liveness, and `GET /readyz` returns 503 while the upstream refuses TCP connections (cached 2s) |
 | `-session-idle` | `30m` | http mode; ends abandoned sessions and requests that never got a response |
@@ -142,7 +144,10 @@ with MCP levels mapped to OTel severities, and the server's stderr in stdio mode
 
 ## Security
 
-- Payload capture is off by default. When enabled, keys matching `pass|token|secret|key|auth|credential|cookie|session` are redacted.
+- Payload capture is off by default, and can be limited to specific tools with `-capture-tools`.
+- Captured payloads and server log data are redacted twice:
+  - **by key:** values under keys matching `-redact-keys` (default `(?i)pass|token|secret|key|auth|credential|cookie|session`)
+  - **by value:** JWTs, `Bearer` tokens, `sk-…`, `gh[pousr]_…`, Slack `xox…` tokens and AWS access key ids, wherever they appear
 - `Authorization`, cookies and other headers are never recorded. `Mcp-Session-Id` is exported only as a truncated SHA-256.
 - In stdio mode, stdout is reserved at the file-descriptor level for protocol frames, so a console exporter or a stray print can't corrupt the stream.
 - Release images are distroless, run as a non-root user, and are cosign-signed, with SBOMs ([.goreleaser.yaml](.goreleaser.yaml)).

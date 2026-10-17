@@ -5,7 +5,12 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `-redact-keys` to replace the redacted-key pattern, and `-capture-tools` to capture payloads only for listed tools (#8).
+- Secret-shaped values (JWTs, bearer tokens, `sk-`/GitHub/Slack tokens, AWS access key ids) are redacted wherever they appear in captured payloads (#8).
+
 ### Changed
+- Server `notifications/message` log data is now redacted like captured payloads, not just truncated (#8).
 - HTTP mode: `/readyz` now returns 503 while the upstream is unreachable (TCP dial, 1s timeout, result cached 2s), so Kubernetes takes the pod out of the Service when the MCP server dies (#5). `/healthz` is unchanged.
 
 ### Fixed

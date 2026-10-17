@@ -17,6 +17,8 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
+	"strings"
 	"syscall"
 	"time"
 
@@ -65,6 +67,8 @@ func run(mode string, args []string) (int, error) {
 	inject := fs.Bool("inject-context", true, "add W3C trace context to params._meta of client requests that lack it")
 	capture := fs.Bool("capture-payloads", false, "record redacted tool arguments and results on spans")
 	maxPayload := fs.Int("max-payload", 4096, "truncate captured payloads to this many bytes")
+	captureTools := fs.String("capture-tools", "", "comma-separated tools to capture payloads for (default: all, when -capture-payloads)")
+	redactKeys := fs.String("redact-keys", observe.DefaultRedactKeys, "regexp of object keys whose values are redacted from captured payloads and server logs")
 
 	var (
 		listen, upstream, certFile, keyFile, clientCA *string
@@ -95,6 +99,20 @@ func run(mode string, args []string) (int, error) {
 		}
 	}
 
+	keys, err := regexp.Compile(*redactKeys)
+	if err != nil {
+		return 2, fmt.Errorf("-redact-keys: %w", err)
+	}
+	var tools map[string]bool
+	for _, name := range strings.Split(*captureTools, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			if tools == nil {
+				tools = map[string]bool{}
+			}
+			tools[name] = true
+		}
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -104,6 +122,7 @@ func run(mode string, args []string) (int, error) {
 	}
 	t := observe.NewTracker(observe.Options{
 		Transport: transport, InjectContext: *inject, CapturePayloads: *capture, MaxPayload: *maxPayload,
+		CaptureTools: tools, RedactKeys: keys,
 	})
 	defer func() {
 		t.Close()
