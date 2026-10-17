@@ -60,7 +60,21 @@ type Params struct {
 	Logger          string            `json:"logger"`
 	Data            json.RawMessage   `json:"data"`
 	Arguments       json.RawMessage   `json:"arguments"`
-	Meta            map[string]string `json:"-"`
+	Task            json.RawMessage   `json:"task"`   // present on task-augmented requests
+	TaskID          string            `json:"taskId"` // tasks/get, tasks/result, tasks/cancel, notifications/tasks/status
+	Status          string            `json:"status"` // notifications/tasks/status
+	Meta            map[string]string `json:"-"`      // string-valued _meta entries (trace context)
+	RelatedTask     string            `json:"-"`      // _meta["io.modelcontextprotocol/related-task"].taskId
+}
+
+const relatedTaskKey = "io.modelcontextprotocol/related-task"
+
+func relatedTask(meta map[string]any) string {
+	if rt, ok := meta[relatedTaskKey].(map[string]any); ok {
+		id, _ := rt["taskId"].(string)
+		return id
+	}
+	return ""
 }
 
 type Info struct {
@@ -79,6 +93,7 @@ func (m *Message) ParseParams() Params {
 		Meta map[string]any `json:"_meta"`
 	}
 	_ = json.Unmarshal(m.Params, &raw)
+	p.RelatedTask = relatedTask(raw.Meta)
 	for k, v := range raw.Meta {
 		if s, ok := v.(string); ok {
 			if p.Meta == nil {
@@ -95,11 +110,25 @@ type Result struct {
 	IsError         bool   `json:"isError"`
 	ProtocolVersion string `json:"protocolVersion"`
 	ServerInfo      *Info  `json:"serverInfo"`
+	Task            *Task  `json:"task"`   // CreateTaskResult
+	TaskID          string `json:"taskId"` // tasks/get, tasks/cancel
+	Status          string `json:"status"`
+	RelatedTask     string `json:"-"` // _meta related-task, e.g. on tasks/result
+}
+
+type Task struct {
+	TaskID string `json:"taskId"`
+	Status string `json:"status"`
 }
 
 func (m *Message) ParseResult() Result {
 	var r Result
 	_ = json.Unmarshal(m.Result, &r)
+	var raw struct {
+		Meta map[string]any `json:"_meta"`
+	}
+	_ = json.Unmarshal(m.Result, &raw)
+	r.RelatedTask = relatedTask(raw.Meta)
 	return r
 }
 

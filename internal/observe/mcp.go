@@ -55,15 +55,24 @@ type Tracker struct {
 	log    *slog.Logger
 	prop   propagation.TextMapPropagator
 
-	serverDur, clientDur, sessDur metric.Float64Histogram
-	msgSize                       metric.Int64Histogram
-	inflight, sessActive          metric.Int64UpDownCounter
-	parseErrs                     metric.Int64Counter
+	serverDur, clientDur, sessDur, taskDur metric.Float64Histogram
+	msgSize                                metric.Int64Histogram
+	inflight, sessActive                   metric.Int64UpDownCounter
+	parseErrs                              metric.Int64Counter
 
 	mu       sync.Mutex
 	pending  map[pendingKey]*pending
 	sessions map[string]*session
 	names    map[string]bool
+	tasks    map[string]*task
+}
+
+// task is an MCP task (2025-11-25, experimental): created by the response
+// to a task-augmented request, finished when a terminal status is seen.
+type task struct {
+	origin          trace.SpanContext // span of the request that created it
+	start, lastSeen time.Time
+	attrs           []attribute.KeyValue // method and tool/prompt of the origin
 }
 
 type pendingKey struct {
@@ -80,6 +89,8 @@ type pending struct {
 	method     string
 	tool       string
 	clientName string
+	augmented  bool                     // request asked to run as a task
+	taskRef    string                   // task this request is about (tasks/* params or related-task)
 	attrs      []attribute.KeyValue     // metric attributes
 	base       metric.MeasurementOption // attributes at start, for the inflight counter
 }
@@ -93,6 +104,9 @@ type session struct {
 
 // Semconv-advised buckets for MCP durations, in seconds.
 var durBuckets = []float64{0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60, 120, 300}
+
+// Tasks exist for long-running work, so their buckets reach an hour.
+var taskBuckets = []float64{0.1, 0.5, 1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600}
 
 func NewTracker(opts Options) *Tracker {
 	if opts.RedactKeys == nil {
@@ -113,6 +127,7 @@ func NewTracker(opts Options) *Tracker {
 		pending:  map[pendingKey]*pending{},
 		sessions: map[string]*session{},
 		names:    map[string]bool{},
+		tasks:    map[string]*task{},
 	}
 	// Instrument creation only fails on invalid names; ours are constants.
 	t.serverDur, _ = m.Float64Histogram("mcp.server.operation.duration", metric.WithUnit("s"),
@@ -121,6 +136,8 @@ func NewTracker(opts Options) *Tracker {
 		metric.WithDescription("Duration of server-initiated MCP requests (sampling, elicitation, roots)."), metric.WithExplicitBucketBoundaries(durBuckets...))
 	t.sessDur, _ = m.Float64Histogram("mcp.server.session.duration", metric.WithUnit("s"),
 		metric.WithDescription("Duration of MCP sessions."), metric.WithExplicitBucketBoundaries(durBuckets...))
+	t.taskDur, _ = m.Float64Histogram("mcp.task.duration", metric.WithUnit("s"),
+		metric.WithDescription("Time from MCP task creation to the first terminal status observed."), metric.WithExplicitBucketBoundaries(taskBuckets...))
 	t.msgSize, _ = m.Int64Histogram("mcp.message.size", metric.WithUnit("By"),
 		metric.WithDescription("Size of JSON-RPC frames."))
 	t.inflight, _ = m.Int64UpDownCounter("mcp.server.requests.inflight", metric.WithUnit("{request}"))
@@ -226,10 +243,22 @@ func (t *Tracker) startRequest(ctx context.Context, dir Dir, scope, sess string,
 		spanAttrs = append(spanAttrs, attribute.String("mcp.resource.uri", p.URI))
 	}
 
+	taskRef := p.TaskID
+	if taskRef == "" {
+		taskRef = p.RelatedTask
+	}
+	if taskRef != "" {
+		spanAttrs = append(spanAttrs, attribute.String("mcp.task.id", taskRef))
+		if origin, ok := t.touchTask(taskRef); ok {
+			opts = append(opts, trace.WithLinks(trace.Link{SpanContext: origin}))
+		}
+	}
+
 	opts = append(opts, trace.WithSpanKind(kind), trace.WithAttributes(spanAttrs...))
 	spanCtx, span := t.tracer.Start(parent, name, opts...)
 
 	pd := &pending{ctx: spanCtx, span: span, start: time.Now(), dir: dir, method: m.Method, tool: p.Name,
+		augmented: len(p.Task) > 0, taskRef: taskRef,
 		attrs: metricAttrs, base: metric.WithAttributes(metricAttrs...)}
 	if p.ClientInfo != nil {
 		pd.clientName = p.ClientInfo.Name
@@ -279,8 +308,30 @@ func (t *Tracker) finish(pd *pending, sess string, m *jsonrpc.Message, errType s
 			errType = code
 			span.SetStatus(codes.Error, m.Error.Message)
 		}
+		// tasks/result relays the underlying request's error; -32602 means
+		// the task is unknown or expired, which says nothing about its outcome.
+		if pd.method == "tasks/result" && m.Error.Code != -32602 {
+			t.taskStatus(pd.taskRef, "failed")
+		}
 	} else if m != nil {
 		r := m.ParseResult()
+		if pd.augmented && r.Task != nil && r.Task.TaskID != "" {
+			span.SetAttributes(attribute.String("mcp.task.id", r.Task.TaskID), attribute.String("mcp.task.status", r.Task.Status))
+			t.startTask(r.Task.TaskID, span.SpanContext(), pd)
+		}
+		if pd.taskRef != "" {
+			status := r.Status // tasks/get, tasks/cancel
+			if pd.method == "tasks/result" {
+				status = "completed"
+				if r.IsError {
+					status = "failed"
+				}
+			}
+			if status != "" {
+				span.SetAttributes(attribute.String("mcp.task.status", status))
+				t.taskStatus(pd.taskRef, status)
+			}
+		}
 		if r.IsError {
 			errType = "tool_error"
 		}
@@ -321,6 +372,8 @@ func (t *Tracker) notification(ctx context.Context, dir Dir, scope string, m *js
 	case "notifications/cancelled":
 		// Sent by whoever issued the request, so the request travelled the same way.
 		t.endRequest(pendingKey{scope, dir, string(p.RequestID)}, "", nil, "cancelled")
+	case "notifications/tasks/status":
+		t.taskStatus(p.TaskID, p.Status)
 	case "notifications/message":
 		if dir == ServerToClient {
 			t.log.Log(ctx, mcpLevel(p.Level), "mcp server log",
@@ -359,6 +412,54 @@ func (t *Tracker) touch(sess string) {
 	t.mu.Unlock()
 }
 
+func (t *Tracker) startTask(id string, origin trace.SpanContext, pd *pending) {
+	var attrs []attribute.KeyValue
+	for _, kv := range pd.attrs {
+		switch kv.Key {
+		case "mcp.method.name", "gen_ai.tool.name", "gen_ai.prompt.name", "network.transport":
+			attrs = append(attrs, kv)
+		}
+	}
+	t.mu.Lock()
+	t.tasks[id] = &task{origin: origin, start: pd.start, lastSeen: time.Now(), attrs: attrs}
+	t.mu.Unlock()
+}
+
+// touchTask marks a task as still in use and returns its origin span.
+func (t *Tracker) touchTask(id string) (trace.SpanContext, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	tk := t.tasks[id]
+	if tk == nil {
+		return trace.SpanContext{}, false
+	}
+	tk.lastSeen = time.Now()
+	return tk.origin, true
+}
+
+// taskStatus records a task's duration the first time it reaches a terminal
+// status. Unknown tasks (created before we started, or already finished) are ignored.
+func (t *Tracker) taskStatus(id, status string) {
+	switch status {
+	case "completed", "failed", "cancelled":
+	default:
+		t.touchTask(id)
+		return
+	}
+	t.mu.Lock()
+	tk := t.tasks[id]
+	delete(t.tasks, id)
+	t.mu.Unlock()
+	if tk == nil {
+		return
+	}
+	ctx := trace.ContextWithSpanContext(context.Background(), tk.origin)
+	dur := time.Since(tk.start)
+	attrs := append(tk.attrs[:len(tk.attrs):len(tk.attrs)], attribute.String("mcp.task.status", status))
+	t.taskDur.Record(ctx, dur.Seconds(), metric.WithAttributes(attrs...))
+	t.log.InfoContext(ctx, "mcp task", "mcp.task.id", id, "mcp.task.status", status, "duration_ms", float64(dur.Microseconds())/1000)
+}
+
 // EndSession records the session's duration. Unknown sessions are ignored.
 func (t *Tracker) EndSession(sess string) {
 	t.mu.Lock()
@@ -393,6 +494,11 @@ func (t *Tracker) Sweep(idle time.Duration) {
 		if pd.start.Before(cutoff) {
 			orphans = append(orphans, pd)
 			delete(t.pending, k)
+		}
+	}
+	for id, tk := range t.tasks { // nobody polled it for a while: outcome unknown, drop
+		if tk.lastSeen.Before(cutoff) {
+			delete(t.tasks, id)
 		}
 	}
 	t.mu.Unlock()

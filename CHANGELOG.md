@@ -6,6 +6,7 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- MCP Tasks support (#6): `mcp.task.id`/`mcp.task.status` on creating, polling and related spans, span links back to the creating request, and a `mcp.task.duration` histogram (creation to terminal status).
 - Self-observability (#9): `mcp_exporter.export.errors{signal}` counts SDK and export failures, the SDK's own `otel.sdk.*` metrics are enabled by default (`OTEL_GO_X_OBSERVABILITY=false` to opt out), SDK error logging to stderr is rate-limited to one line per 30s, and there's a new `MCPExporterExportFailing` alert.
 - `-redact-keys` to replace the redacted-key pattern, and `-capture-tools` to capture payloads only for listed tools (#8).
 - Secret-shaped values (JWTs, bearer tokens, `sk-`/GitHub/Slack tokens, AWS access key ids) are redacted wherever they appear in captured payloads (#8).
