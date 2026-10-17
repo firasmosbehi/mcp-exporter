@@ -6,12 +6,15 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -67,10 +70,15 @@ func HTTP(t *observe.Tracker, upstream *url.URL) http.Handler {
 	}
 
 	mux := http.NewServeMux()
-	// ponytail: readyz == healthz; probe upstream if a dead backend should pull the pod.
-	health := func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "ok\n") }
-	mux.HandleFunc("GET /healthz", health)
-	mux.HandleFunc("GET /readyz", health)
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "ok\n") })
+	rd := &readiness{addr: hostPort(upstream)}
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		if err := rd.check(); err != nil {
+			http.Error(w, "upstream unreachable: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		io.WriteString(w, "ok\n")
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		ex := &exchange{
 			ctx:     otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header)),
@@ -107,6 +115,42 @@ func HTTP(t *observe.Tracker, upstream *url.URL) http.Handler {
 		rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), exchangeKey{}, ex)))
 	})
 	return mux
+}
+
+// readyTTL is how long a readiness result is reused, so frequent probes
+// don't turn into a dial per probe.
+var readyTTL = 2 * time.Second
+
+// readiness reports whether the upstream accepts TCP connections.
+type readiness struct {
+	addr string
+	mu   sync.Mutex
+	at   time.Time
+	err  error
+}
+
+func (r *readiness) check() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.at.IsZero() && time.Since(r.at) < readyTTL {
+		return r.err
+	}
+	c, err := net.DialTimeout("tcp", r.addr, time.Second)
+	if err == nil {
+		c.Close()
+	}
+	r.at, r.err = time.Now(), err
+	return err
+}
+
+func hostPort(u *url.URL) string {
+	if u.Port() != "" {
+		return u.Host
+	}
+	if u.Scheme == "https" {
+		return net.JoinHostPort(u.Hostname(), "443")
+	}
+	return net.JoinHostPort(u.Hostname(), "80")
 }
 
 var errTooBig = errors.New("decompressed body exceeds observation limit")

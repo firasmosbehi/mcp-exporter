@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -144,5 +145,45 @@ func TestGunzipLimit(t *testing.T) {
 	zw.Close()
 	if _, err := gunzip(b.Bytes()); err != errTooBig {
 		t.Fatalf("want errTooBig, got %v", err)
+	}
+}
+
+// Issue #5: /readyz follows the upstream, /healthz does not.
+func TestReadyzFollowsUpstream(t *testing.T) {
+	readyTTL = 0
+	defer func() { readyTTL = 2 * time.Second }()
+	upstream := httptest.NewServer(http.NotFoundHandler())
+	up, _ := url.Parse(upstream.URL)
+	proxy := httptest.NewServer(HTTP(observe.NewTracker(observe.Options{Transport: "tcp"}), up))
+	defer proxy.Close()
+
+	code := func(path string) int {
+		resp, err := http.Get(proxy.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if c := code("/readyz"); c != 200 {
+		t.Fatalf("readyz with live upstream = %d", c)
+	}
+	upstream.Close()
+	if c := code("/readyz"); c != 503 {
+		t.Errorf("readyz with dead upstream = %d, want 503", c)
+	}
+	if c := code("/healthz"); c != 200 {
+		t.Errorf("healthz must not depend on upstream, got %d", c)
+	}
+}
+
+func TestHostPort(t *testing.T) {
+	for in, want := range map[string]string{
+		"http://a:3000": "a:3000", "http://a": "a:80", "https://a": "a:443", "http://[::1]": "[::1]:80",
+	} {
+		u, _ := url.Parse(in)
+		if got := hostPort(u); got != want {
+			t.Errorf("hostPort(%s) = %s, want %s", in, got, want)
+		}
 	}
 }

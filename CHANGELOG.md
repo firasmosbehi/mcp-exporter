@@ -5,6 +5,9 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- HTTP mode: `/readyz` now returns 503 while the upstream is unreachable (TCP dial, 1s timeout, result cached 2s), so Kubernetes takes the pod out of the Service when the MCP server dies (#5). `/healthz` is unchanged.
+
 ### Fixed
 - HTTP mode: gzip-compressed requests and compressed upstream responses were forwarded but not observed (#4). Request bodies are now decompressed for observation, and the upstream is asked for uncompressed responses.
 
