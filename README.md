@@ -102,6 +102,7 @@ Flags (`mcp-exporter <mode> -h`):
 | `-capture-payloads` | `false` | records tool arguments and results on spans, redacted and truncated |
 | `-max-payload` | `4096` | truncation limit for captured payloads |
 | `-listen`, `-upstream` | `:8080`, — | http mode; request paths pass through to the upstream base URL |
+| — | — | http mode: `GET /healthz` is liveness, and `GET /readyz` returns 503 while the upstream refuses TCP connections (cached 2s) |
 | `-session-idle` | `30m` | http mode; ends abandoned sessions and requests that never got a response |
 | `-tls-cert`, `-tls-key`, `-tls-client-ca` | — | http mode; TLS, and mTLS when a client CA is given |
 
@@ -157,7 +158,6 @@ In HTTP mode the exporter asks the upstream for uncompressed responses (`Accept-
 - **Profiles:** OTLP Profiles are in public Alpha (Mar 2026). Server-side profiling is best done today with the
   [OTel eBPF profiler](https://github.com/open-telemetry/opentelemetry-ebpf-profiler), and `grafana/otel-lgtm` already ships Pyroscope.
 - Client-side mode (`mcp.client.*` from the agent's point of view).
-- Upstream readiness checks for `/readyz`.
 
 ## Contributing
 
