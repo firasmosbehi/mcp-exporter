@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -39,6 +41,9 @@ func HTTP(t *observe.Tracker, upstream *url.URL) http.Handler {
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(upstream)
 			r.SetXForwarded()
+			// Compressed responses can't be observed, and the sidecar hop is
+			// local, so ask the upstream for plain bytes (also keeps SSE flushing).
+			r.Out.Header.Set("Accept-Encoding", "identity")
 		},
 		FlushInterval: -1, // SSE must not be buffered
 		ModifyResponse: func(resp *http.Response) error {
@@ -84,7 +89,15 @@ func HTTP(t *observe.Tracker, upstream *url.URL) http.Handler {
 				http.Error(w, "reading request body: "+err.Error(), http.StatusBadRequest)
 				return
 			}
-			if len(body) <= maxObserved {
+			enc := r.Header.Get("Content-Encoding")
+			if enc == "gzip" {
+				if plain, err := gunzip(body); err == nil {
+					body, enc = plain, ""
+					r.Header.Del("Content-Encoding")
+				}
+			}
+			// Other encodings (or bad gzip) are forwarded as-is, unobserved.
+			if enc == "" && len(body) <= maxObserved {
 				body = t.Frame(ex.ctx, observe.ClientToServer, ex.scope, ex.session, body)
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
@@ -94,6 +107,25 @@ func HTTP(t *observe.Tracker, upstream *url.URL) http.Handler {
 		rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), exchangeKey{}, ex)))
 	})
 	return mux
+}
+
+var errTooBig = errors.New("decompressed body exceeds observation limit")
+
+// gunzip decompresses at most maxObserved bytes, so a small gzip bomb can't
+// make us allocate without bound.
+func gunzip(b []byte) ([]byte, error) {
+	zr, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	out, err := io.ReadAll(io.LimitReader(zr, maxObserved+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(out) > maxObserved {
+		return nil, errTooBig
+	}
+	return out, nil
 }
 
 // jsonObserver buffers a JSON response as it streams to the client and

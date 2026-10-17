@@ -150,6 +150,7 @@ with MCP levels mapped to OTel severities, and the server's stderr in stdio mode
 
 About 8 µs of CPU per request/response pair, including trace-context injection (`go test ./internal/observe -bench .`).
 SSE streams are observed as they pass through and are never buffered or modified.
+In HTTP mode the exporter asks the upstream for uncompressed responses (`Accept-Encoding: identity`), and gzip request bodies are forwarded decompressed. Both are needed to observe the traffic, and the sidecar hop is local.
 
 ## Roadmap
 
