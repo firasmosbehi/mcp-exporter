@@ -5,6 +5,8 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0]
+
 ### Added
 - MCP Tasks support (#6): `mcp.task.id`/`mcp.task.status` on creating, polling and related spans, span links back to the creating request, and a `mcp.task.duration` histogram (creation to terminal status).
 - Self-observability (#9): `mcp_exporter.export.errors{signal}` counts SDK and export failures, the SDK's own `otel.sdk.*` metrics are enabled by default (`OTEL_GO_X_OBSERVABILITY=false` to opt out), SDK error logging to stderr is rate-limited to one line per 30s, and there's a new `MCPExporterExportFailing` alert.
@@ -31,5 +33,6 @@ All notable changes are documented here. The format follows
 - Signed release binaries, multi-arch distroless image, SBOMs, and the Helm chart as a signed OCI artifact.
 - `mcp-exporter version`, with the version also reported as the `telemetry.distro.version` resource attribute.
 
-[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/firasmosbehi/mcp-exporter/releases/tag/v0.1.0
