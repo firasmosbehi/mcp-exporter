@@ -3,6 +3,7 @@ on:
   push: {branches: [main]}
   pull_request:
   workflow_dispatch:
+  workflow_call: # release.yml gates on the full CI
 permissions: {contents: read}
 jobs:
   test:

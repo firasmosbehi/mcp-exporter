@@ -1,13 +1,18 @@
 name: release
 on:
   push: {tags: ["v*"]}
-permissions:
-  contents: write   # GitHub release
-  packages: write   # ghcr.io image
-  id-token: write   # keyless cosign signing
+permissions: {contents: read}
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: ci
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # GitHub release
+      packages: write   # ghcr.io image and chart
+      id-token: write   # keyless cosign signing
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
@@ -19,6 +24,23 @@ jobs:
         with: {registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}"}
       - uses: sigstore/cosign-installer@v3
       - uses: anchore/sbom-action/download-syft@v0
+      - uses: azure/setup-helm@v4
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on && !/^\[[^]]*\]: /' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          test -s "$RUNNER_TEMP/notes.md" || { echo "CHANGELOG.md has no section for $v"; exit 1; }
+
       - uses: goreleaser/goreleaser-action@v6
-        with: {args: release --clean}
+        with: {args: "release --clean --release-notes ${{ runner.temp }}/notes.md"}
         env: {GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"}
+
+      - name: Push and sign Helm chart
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          helm package deploy/helm/mcp-exporter --version "$v" --app-version "$v" -d "$RUNNER_TEMP"
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push "$RUNNER_TEMP/mcp-exporter-$v.tgz" oci://ghcr.io/${{ github.repository_owner }}/charts 2>&1 | tee "$RUNNER_TEMP/push.log"
+          digest=$(grep -o 'sha256:[0-9a-f]\{64\}' "$RUNNER_TEMP/push.log" | head -1)
+          cosign sign --yes "ghcr.io/${{ github.repository_owner }}/charts/mcp-exporter@$digest"

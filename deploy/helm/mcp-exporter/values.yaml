@@ -9,7 +9,8 @@ server:
   resources: {}
 
 exporter:
-  image: ghcr.io/firasmosbehi/mcp-exporter:0.1.0
+  image: ghcr.io/firasmosbehi/mcp-exporter
+  tag: ""               # defaults to the chart appVersion
   port: 8080
   extraArgs: []          # e.g. ["-capture-payloads"]
   # Standard OTel env vars; anything here is passed through verbatim.

@@ -14,7 +14,8 @@ All notable changes are documented here. The format follows
 - **Logs:** per-request access logs with trace correlation, server `notifications/message`, and stdio server stderr.
 - Opt-in redacted payload capture, hashed session ids, and TLS/mTLS for the HTTP listener.
 - docker-compose reference stack (Grafana, Prometheus, Tempo, Loki), Helm chart with a sidecar, Grafana dashboard and Prometheus alert rules.
-- Signed release binaries, multi-arch distroless image, SBOMs.
+- Signed release binaries, multi-arch distroless image, SBOMs, and the Helm chart as a signed OCI artifact.
+- `mcp-exporter version`, with the version also reported as the `telemetry.distro.version` resource attribute.
 
 [Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/firasmosbehi/mcp-exporter/releases/tag/v0.1.0

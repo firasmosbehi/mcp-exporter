@@ -3,7 +3,7 @@ builds:
   - main: ./cmd/mcp-exporter
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
-    ldflags: [-s -w]
+    ldflags: [-s -w, "-X main.version={{ .Version }}"]
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
 archives:
@@ -23,6 +23,12 @@ dockers_v2:
     tags: ["{{ .Version }}", latest]
     dockerfile: release.Dockerfile
     platforms: [linux/amd64, linux/arm64]
+    labels:
+      org.opencontainers.image.source: https://github.com/firasmosbehi/mcp-exporter
+      org.opencontainers.image.description: OpenTelemetry traces, metrics and logs for MCP servers
+      org.opencontainers.image.licenses: Apache-2.0
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
 docker_signs:
   - artifacts: manifests
     args: [sign, "${artifact}", --yes]
