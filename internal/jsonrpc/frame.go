@@ -44,9 +44,21 @@ func Parse(b []byte) (msgs []Message, batch bool, err error) {
 // Encode is the inverse of Parse.
 func Encode(msgs []Message, batch bool) ([]byte, error) {
 	if batch {
-		return json.Marshal(msgs)
+		return marshal(msgs)
 	}
-	return json.Marshal(msgs[0])
+	return marshal(msgs[0])
+}
+
+// marshal is json.Marshal without HTML escaping: the proxy should not turn
+// "&", "<" or ">" in ids and arguments into \u0026-style escapes.
+func marshal(v any) ([]byte, error) {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(b.Bytes(), []byte("\n")), nil
 }
 
 // Params holds the fields of request params that telemetry cares about.
@@ -133,20 +145,24 @@ func (m *Message) ParseResult() Result {
 }
 
 // SetMeta merges kv into params._meta, creating params if needed.
-// Params that aren't a JSON object are left untouched.
+// Params that aren't a JSON object (arrays, null) are left untouched.
 func (m *Message) SetMeta(kv map[string]string) {
 	params := map[string]json.RawMessage{}
-	if len(m.Params) > 0 && json.Unmarshal(m.Params, &params) != nil {
+	// Unmarshalling JSON null into a map yields a nil map, so check for nil too.
+	if len(m.Params) > 0 && (json.Unmarshal(m.Params, &params) != nil || params == nil) {
 		return
 	}
 	meta := map[string]json.RawMessage{}
 	if raw, ok := params["_meta"]; ok && json.Unmarshal(raw, &meta) != nil {
 		return
 	}
+	if meta == nil { // "_meta": null
+		meta = map[string]json.RawMessage{}
+	}
 	for k, v := range kv {
-		b, _ := json.Marshal(v)
+		b, _ := marshal(v)
 		meta[k] = b
 	}
-	params["_meta"], _ = json.Marshal(meta)
-	m.Params, _ = json.Marshal(params)
+	params["_meta"], _ = marshal(meta)
+	m.Params, _ = marshal(params)
 }

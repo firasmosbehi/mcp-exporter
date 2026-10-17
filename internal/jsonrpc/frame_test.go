@@ -56,3 +56,33 @@ func TestParamsAndMeta(t *testing.T) {
 		t.Error("meta not added to param-less request")
 	}
 }
+
+// Regression (found by FuzzParse): null params/_meta made SetMeta write to a
+// nil map and panic, which killed the process in stdio mode.
+func TestSetMetaNulls(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"jsonrpc":"2.0","id":1,"method":"ping","params":{"_meta":null}}`: `"_meta":{"traceparent":"x"}`,
+		`{"jsonrpc":"2.0","id":1,"method":"ping","params":null}`:           `"params":null`,
+		`{"jsonrpc":"2.0","id":1,"method":"ping","params":[1,2]}`:          `"params":[1,2]`,
+	} {
+		msgs, batch, _ := Parse([]byte(in))
+		msgs[0].SetMeta(map[string]string{"traceparent": "x"})
+		out, _ := Encode(msgs, batch)
+		if !strings.Contains(string(out), want) {
+			t.Errorf("SetMeta(%s) = %s, want it to contain %s", in, out, want)
+		}
+	}
+}
+
+// Regression (found by FuzzParse): injecting trace context must not
+// HTML-escape ids or arguments.
+func TestSetMetaNoHTMLEscape(t *testing.T) {
+	msgs, batch, _ := Parse([]byte(`{"jsonrpc":"2.0","id":"&","method":"tools/call","params":{"name":"q","arguments":{"expr":"a<b && c>d"}}}`))
+	msgs[0].SetMeta(map[string]string{"traceparent": "x"})
+	out, _ := Encode(msgs, batch)
+	for _, want := range []string{`"id":"&"`, `"a<b && c>d"`} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("%s lacks %s", out, want)
+		}
+	}
+}
