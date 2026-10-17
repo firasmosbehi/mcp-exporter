@@ -24,9 +24,13 @@ import (
 	"github.com/firasmosbehi/mcp-exporter/internal/proxy"
 )
 
+// version is set at release time with -ldflags "-X main.version=...".
+var version = "dev"
+
 const usage = `usage:
   mcp-exporter stdio [flags] -- <server command> [args...]
   mcp-exporter http  [flags] -upstream <url>
+  mcp-exporter version
 
 Telemetry export is configured with the standard OTEL_* environment variables,
 e.g. OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_TRACES_EXPORTER=otlp|console|none,
@@ -40,6 +44,10 @@ func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
+	}
+	if os.Args[1] == "version" {
+		fmt.Println(version)
+		return
 	}
 	code, err := run(os.Args[1], os.Args[2:])
 	if err != nil {
@@ -90,7 +98,7 @@ func run(mode string, args []string) (int, error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	shutdown, err := observe.Setup(ctx, *service)
+	shutdown, err := observe.Setup(ctx, *service, version)
 	if err != nil {
 		return 1, fmt.Errorf("telemetry setup: %w", err)
 	}

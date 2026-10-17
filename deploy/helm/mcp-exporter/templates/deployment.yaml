@@ -34,7 +34,7 @@ spec:
           {{- end }}
           resources: {{- toYaml .Values.server.resources | nindent 12 }}
         - name: mcp-exporter
-          image: {{ .Values.exporter.image }}
+          image: "{{ .Values.exporter.image }}:{{ .Values.exporter.tag | default .Chart.AppVersion }}"
           args:
             - http
             - -listen=:{{ .Values.exporter.port }}

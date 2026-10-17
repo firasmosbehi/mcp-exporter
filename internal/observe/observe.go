@@ -21,7 +21,7 @@ import (
 // protocols, TLS, headers and sampling all come from the standard OTEL_* env
 // vars (OTEL_TRACES_EXPORTER=otlp|console|none, OTEL_METRICS_EXPORTER=
 // otlp|prometheus|console|none, ...). The returned func flushes and shuts down.
-func Setup(ctx context.Context, serviceName string) (func(context.Context) error, error) {
+func Setup(ctx context.Context, serviceName, version string) (func(context.Context) error, error) {
 	if os.Getenv("OTEL_SERVICE_NAME") == "" {
 		os.Setenv("OTEL_SERVICE_NAME", serviceName)
 	}
@@ -29,7 +29,10 @@ func Setup(ctx context.Context, serviceName string) (func(context.Context) error
 		resource.WithFromEnv(),
 		resource.WithTelemetrySDK(),
 		resource.WithHost(),
-		resource.WithAttributes(attribute.String("telemetry.distro.name", "mcp-exporter")),
+		resource.WithAttributes(
+			attribute.String("telemetry.distro.name", "mcp-exporter"),
+			attribute.String("telemetry.distro.version", version),
+		),
 	)
 	if err != nil {
 		return nil, err
