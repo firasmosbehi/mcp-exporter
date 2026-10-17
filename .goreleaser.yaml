@@ -10,6 +10,8 @@ archives:
   - formats: [tar.gz]
     format_overrides: [{goos: windows, formats: [zip]}]
 checksum: {name_template: checksums.txt}
+release:
+  prerelease: auto # v1.2.3-rc1 etc. become GitHub pre-releases
 sboms:
   - artifacts: archive
 signs:
@@ -20,7 +22,7 @@ signs:
     args: [sign-blob, "--output-certificate=${certificate}", "--output-signature=${signature}", "${artifact}", --yes]
 dockers_v2:
   - images: ["ghcr.io/firasmosbehi/mcp-exporter"]
-    tags: ["{{ .Version }}", latest]
+    tags: ["{{ .Version }}", "{{ if not .Prerelease }}latest{{ end }}"] # rcs never move latest
     dockerfile: release.Dockerfile
     platforms: [linux/amd64, linux/arm64]
     labels:
