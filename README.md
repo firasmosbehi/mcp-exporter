@@ -133,6 +133,8 @@ in `rpc.response.status_code` but are not counted as server errors.
 | `mcp.server.requests.inflight` | up-down counter | method, tool |
 | `mcp.message.size` (By) | histogram | `mcp.direction`, transport |
 | `mcp_exporter.parse.errors` | counter | frames that were not JSON-RPC, forwarded untouched |
+| `mcp_exporter.export.errors` | counter | `signal`: SDK errors, mostly failed exports to the backend |
+| `otel.sdk.*` | various | the Go SDK's own metrics (processed and dropped spans and logs, exporter outcomes, queue sizes); experimental, turn off with `OTEL_GO_X_OBSERVABILITY=false` |
 
 Session and request ids never become metric labels. Tool and prompt names are capped at 500 distinct values, and the rest fold into `_other`.
 
@@ -140,7 +142,7 @@ Session and request ids never become metric labels. Tool and prompt names are ca
 with MCP levels mapped to OTel severities, and the server's stderr in stdio mode.
 
 **Dashboards and alerts:** see [deploy/grafana/dashboard.json](deploy/grafana/dashboard.json) and
-[deploy/grafana/alerts.yaml](deploy/grafana/alerts.yaml) (error rate, failing tools, slow tools, parse errors).
+[deploy/grafana/alerts.yaml](deploy/grafana/alerts.yaml) (error rate, failing tools, slow tools, parse errors, failing exports).
 
 ## Security
 

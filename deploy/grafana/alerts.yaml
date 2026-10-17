@@ -31,3 +31,11 @@ groups:
         labels: {severity: info}
         annotations:
           summary: "mcp-exporter on {{ $labels.service_name }} sees non-JSON-RPC frames (unobserved traffic)"
+      - alert: MCPExporterExportFailing
+        # Visible when metrics are pulled (Prometheus exporter) or only some signals fail;
+        # if OTLP metrics fail too, rely on absent()/staleness alerts in your backend.
+        expr: sum by (service_name, job, signal) (rate(mcp_exporter_export_errors_total[5m])) > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "mcp-exporter cannot export {{ $labels.signal }} (telemetry is being dropped)"
