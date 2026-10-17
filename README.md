@@ -117,6 +117,12 @@ Attributes: `mcp.method.name`, `jsonrpc.request.id`, `gen_ai.tool.name`, `gen_ai
 `mcp.server.name`, `mcp.client.name`, `network.transport`, `rpc.response.status_code`, `error.type`.
 Parent context comes from `params._meta` (`traceparent`/`tracestate`/`baggage`), and an HTTP `traceparent` header becomes a span link.
 
+**Tasks** (MCP 2025-11-25, experimental): the request that creates a task, and every later
+`tasks/get`, `tasks/result` and `tasks/cancel` (plus any message carrying the
+`io.modelcontextprotocol/related-task` meta), get `mcp.task.id` and, where known, `mcp.task.status`.
+Later spans link back to the creating span, so a long-running tool call shows up as one connected story.
+The `mcp.task.*` names are this project's: the semantic conventions don't define task attributes yet.
+
 **Errors:** `error.type` is the JSON-RPC error code, `tool_error` for results with `isError: true`,
 `cancelled` (`notifications/cancelled`), or `timeout` (no response within `-session-idle`).
 Per the conventions, the caller-side codes `-32700 -32600 -32601 -32602 -32002` are recorded
@@ -132,6 +138,7 @@ in `rpc.response.status_code` but are not counted as server errors.
 | `mcp.server.sessions.active` | up-down counter | |
 | `mcp.server.requests.inflight` | up-down counter | method, tool |
 | `mcp.message.size` (By) | histogram | `mcp.direction`, transport |
+| `mcp.task.duration` (s) | histogram | creation to first terminal status of an MCP task; origin method and tool, `mcp.task.status` |
 | `mcp_exporter.parse.errors` | counter | frames that were not JSON-RPC, forwarded untouched |
 | `mcp_exporter.export.errors` | counter | `signal`: SDK errors, mostly failed exports to the backend |
 | `otel.sdk.*` | various | the Go SDK's own metrics (processed and dropped spans and logs, exporter outcomes, queue sizes); experimental, turn off with `OTEL_GO_X_OBSERVABILITY=false` |

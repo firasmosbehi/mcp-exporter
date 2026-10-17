@@ -194,3 +194,81 @@ func TestCaptureAllowlist(t *testing.T) {
 		t.Errorf("other tools must not be captured: %v", a)
 	}
 }
+
+// Issue #6: MCP Tasks (2025-11-25) messages are tied back to the request
+// that created the task, and the task's own duration is recorded once.
+func TestTasks(t *testing.T) {
+	tr, spans, reader := setup(t)
+	const T, U = "786512e2-9e0d-44bd-8f29-789f320fe840", "task-2"
+	rt := `"_meta":{"io.modelcontextprotocol/related-task":{"taskId":"` + T + `"}}`
+
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_weather","arguments":{"city":"NY"},"task":{"ttl":60000}}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":1,"result":{"task":{"taskId":"`+T+`","status":"working","createdAt":"2025-11-25T10:30:00Z"}}}`)
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":2,"method":"tasks/get","params":{"taskId":"`+T+`"}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":2,"result":{"taskId":"`+T+`","status":"input_required"}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":"e1","method":"elicitation/create","params":{"message":"which NY?",`+rt+`}}`)
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":"e1","result":{"action":"accept",`+rt+`}}`)
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":3,"method":"tasks/result","params":{"taskId":"`+T+`"}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":3,"result":{"content":[],"isError":false,`+rt+`}}`)
+
+	// Second task fails via a status notification; a later tasks/result must not double count.
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_weather","task":{}}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":4,"result":{"task":{"taskId":"`+U+`","status":"working"}}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","method":"notifications/tasks/status","params":{"taskId":"`+U+`","status":"failed"}}`)
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":5,"method":"tasks/result","params":{"taskId":"`+U+`"}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":5,"result":{"content":[],"isError":true}}`)
+	// Unknown task: attribute only, no link, no crash.
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":6,"method":"tasks/get","params":{"taskId":"nope"}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"Task not found"}}`)
+
+	got := spans.GetSpans()
+	if len(got) != 7 {
+		t.Fatalf("want 7 spans, got %d", len(got))
+	}
+	origin := got[0]
+	if a := attrs(origin); a["mcp.task.id"] != T || a["mcp.task.status"] != "working" {
+		t.Errorf("creating span should carry the task: %v", a)
+	}
+	linked := func(s tracetest.SpanStub) bool {
+		return len(s.Links) == 1 && s.Links[0].SpanContext.SpanID() == origin.SpanContext.SpanID()
+	}
+	for _, i := range []int{1, 2, 3} { // tasks/get, elicitation/create, tasks/result
+		if a := attrs(got[i]); a["mcp.task.id"] != T || !linked(got[i]) {
+			t.Errorf("%s: want mcp.task.id and a link to the creating span; attrs=%v links=%d", got[i].Name, a, len(got[i].Links))
+		}
+	}
+	if a := attrs(got[1]); a["mcp.task.status"] != "input_required" {
+		t.Errorf("tasks/get should record the polled status: %v", a)
+	}
+	if got[2].SpanKind != trace.SpanKindClient {
+		t.Errorf("server-initiated elicitation should be a CLIENT span")
+	}
+	if a := attrs(got[6]); a["mcp.task.id"] != "nope" || len(got[6].Links) != 0 {
+		t.Errorf("unknown task: %v links=%d", a, len(got[6].Links))
+	}
+
+	var rm metricdata.ResourceMetrics
+	reader.Collect(context.Background(), &rm)
+	counts := map[string]uint64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "mcp.task.duration" {
+				continue
+			}
+			for _, dp := range m.Data.(metricdata.Histogram[float64]).DataPoints {
+				st, _ := dp.Attributes.Value("mcp.task.status")
+				tool, _ := dp.Attributes.Value("gen_ai.tool.name")
+				if tool.AsString() != "get_weather" {
+					t.Errorf("task metric should carry the origin's tool, got %q", tool.AsString())
+				}
+				if _, has := dp.Attributes.Value("mcp.task.id"); has {
+					t.Error("task id must never be a metric attribute")
+				}
+				counts[st.AsString()] += dp.Count
+			}
+		}
+	}
+	if counts["completed"] != 1 || counts["failed"] != 1 || len(counts) != 2 {
+		t.Errorf("want one completed and one failed task, got %v", counts)
+	}
+}
