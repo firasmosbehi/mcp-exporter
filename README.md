@@ -205,7 +205,7 @@ Session and request ids never become metric labels. Tool and prompt names are ca
 with MCP levels mapped to OTel severities, and the server's stderr in stdio mode.
 
 **Dashboards and alerts:** see [deploy/grafana/dashboard.json](deploy/grafana/dashboard.json) and
-[deploy/grafana/alerts.yaml](deploy/grafana/alerts.yaml) (error rate, failing tools, slow tools, parse errors, failing exports).
+[deploy/grafana/alerts.yaml](deploy/grafana/alerts.yaml) (error rate, failing tools, slow tools, failing tasks, parse errors, failing exports, SDK queue saturation). The dashboard has rows for the server, MCP Tasks, client mode and exporter health.
 
 ## Profiles
 

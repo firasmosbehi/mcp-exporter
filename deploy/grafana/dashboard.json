@@ -28,6 +28,18 @@
  },
  "panels": [
   {
+   "type": "row",
+   "title": "Server",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
    "type": "stat",
    "title": "Requests/s",
    "datasource": {
@@ -35,7 +47,7 @@
    },
    "gridPos": {
     "x": 0,
-    "y": 0,
+    "y": 1,
     "w": 6,
     "h": 4
    },
@@ -60,7 +72,7 @@
    },
    "gridPos": {
     "x": 6,
-    "y": 0,
+    "y": 1,
     "w": 6,
     "h": 4
    },
@@ -85,7 +97,7 @@
    },
    "gridPos": {
     "x": 12,
-    "y": 0,
+    "y": 1,
     "w": 6,
     "h": 4
    },
@@ -110,7 +122,7 @@
    },
    "gridPos": {
     "x": 18,
-    "y": 0,
+    "y": 1,
     "w": 6,
     "h": 4
    },
@@ -135,7 +147,7 @@
    },
    "gridPos": {
     "x": 0,
-    "y": 4,
+    "y": 5,
     "w": 12,
     "h": 8
    },
@@ -161,7 +173,7 @@
    },
    "gridPos": {
     "x": 12,
-    "y": 4,
+    "y": 5,
     "w": 12,
     "h": 8
    },
@@ -187,7 +199,7 @@
    },
    "gridPos": {
     "x": 0,
-    "y": 12,
+    "y": 13,
     "w": 12,
     "h": 8
    },
@@ -213,7 +225,7 @@
    },
    "gridPos": {
     "x": 12,
-    "y": 12,
+    "y": 13,
     "w": 12,
     "h": 8
    },
@@ -239,7 +251,7 @@
    },
    "gridPos": {
     "x": 0,
-    "y": 20,
+    "y": 21,
     "w": 12,
     "h": 8
    },
@@ -270,7 +282,7 @@
    },
    "gridPos": {
     "x": 12,
-    "y": 20,
+    "y": 21,
     "w": 12,
     "h": 8
    },
@@ -285,6 +297,305 @@
      "expr": "histogram_quantile(0.95, sum by (le, mcp_direction) (rate(mcp_message_size_bytes_bucket{service_name=~\"$service\"}[5m])))",
      "legendFormat": "{{mcp_direction}}",
      "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "title": "MCP Tasks",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 29,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "type": "timeseries",
+   "title": "Task duration p50 / p95 by tool",
+   "description": "Creation to first terminal status observed (MCP 2025-11-25 Tasks).",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 30,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.5, sum by (le, gen_ai_tool_name) (rate(mcp_task_duration_seconds_bucket{service_name=~\"$service\"}[5m])))",
+     "legendFormat": "p50 {{gen_ai_tool_name}}",
+     "refId": "A"
+    },
+    {
+     "expr": "histogram_quantile(0.95, sum by (le, gen_ai_tool_name) (rate(mcp_task_duration_seconds_bucket{service_name=~\"$service\"}[5m])))",
+     "legendFormat": "p95 {{gen_ai_tool_name}}",
+     "refId": "B"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Tasks finished by status",
+   "description": "",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 30,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (mcp_task_status) (rate(mcp_task_duration_seconds_count{service_name=~\"$service\"}[5m]))",
+     "legendFormat": "{{mcp_task_status}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "title": "Client mode (-role client)",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 38,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "type": "timeseries",
+   "title": "Client requests/s by method",
+   "description": "Requests sent by the observed side: agent-side exporters, or server-initiated requests in server role.",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 39,
+    "w": 8,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (mcp_method_name) (rate(mcp_client_operation_duration_seconds_count{service_name=~\"$service\"}[5m]))",
+     "legendFormat": "{{mcp_method_name}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Client errors/s by tool and error.type",
+   "description": "",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 39,
+    "w": 8,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (gen_ai_tool_name, error_type) (rate(mcp_client_operation_duration_seconds_count{service_name=~\"$service\",error_type!=\"\"}[5m]))",
+     "legendFormat": "{{gen_ai_tool_name}} {{error_type}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Client tool latency p95",
+   "description": "",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 39,
+    "w": 8,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.95, sum by (le, gen_ai_tool_name) (rate(mcp_client_operation_duration_seconds_bucket{service_name=~\"$service\",mcp_method_name=\"tools/call\"}[5m])))",
+     "legendFormat": "{{gen_ai_tool_name}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "title": "Exporter health",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 47,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "type": "timeseries",
+   "title": "Failed exports/s by signal",
+   "description": "Errors reported by the OpenTelemetry SDK, mostly failed exports to the backend. Only visible when metrics still get out.",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 48,
+    "w": 8,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (signal) (rate(mcp_exporter_export_errors_total{service_name=~\"$service\"}[5m]))",
+     "legendFormat": "{{signal}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Unparsed frames/s",
+   "description": "",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 48,
+    "w": 8,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum(rate(mcp_exporter_parse_errors_total{service_name=~\"$service\"}[5m]))",
+     "legendFormat": "not JSON-RPC (forwarded unobserved)",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Dropped or failed telemetry/s",
+   "description": "",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 48,
+    "w": 8,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (error_type) (rate(otel_sdk_processor_span_processed_total{service_name=~\"$service\",error_type!=\"\"}[5m]))",
+     "legendFormat": "spans dropped: {{error_type}}",
+     "refId": "A"
+    },
+    {
+     "expr": "sum by (error_type) (rate(otel_sdk_processor_log_processed_total{service_name=~\"$service\",error_type!=\"\"}[5m]))",
+     "legendFormat": "logs dropped: {{error_type}}",
+     "refId": "B"
+    },
+    {
+     "expr": "sum by (error_type) (rate(otel_sdk_exporter_span_exported_total{service_name=~\"$service\",error_type!=\"\"}[5m]))",
+     "legendFormat": "spans export failed: {{error_type}}",
+     "refId": "C"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "SDK queue fill",
+   "description": "Near 100% means telemetry is about to be dropped: the backend is slow or unreachable.",
+   "datasource": {
+    "type": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 56,
+    "w": 24,
+    "h": 6
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "max(otel_sdk_processor_span_queue_size{service_name=~\"$service\"} / otel_sdk_processor_span_queue_capacity{service_name=~\"$service\"})",
+     "legendFormat": "span queue",
+     "refId": "A"
+    },
+    {
+     "expr": "max(otel_sdk_processor_log_queue_size{service_name=~\"$service\"} / otel_sdk_processor_log_queue_capacity{service_name=~\"$service\"})",
+     "legendFormat": "log queue",
+     "refId": "B"
     }
    ]
   }
