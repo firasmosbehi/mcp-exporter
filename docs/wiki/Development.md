@@ -15,6 +15,7 @@ gofmt -l . && go vet ./...
 |---|---|
 | `test` | gofmt, vet, `go test -race`, 20 s of fuzzing per target, govulncheck, helm lint |
 | `windows` | `go test ./...` on windows-latest, including the console-exporter refusal |
+| `helm` | `deploy/helm/e2e.sh` in kind: Ready via `/readyz`, an MCP session through the Service, span, metrics and pprof ports |
 | `e2e` | `smoke.sh` with `PROFILES=1`; dumps container logs on failure |
 
 ## Releasing
