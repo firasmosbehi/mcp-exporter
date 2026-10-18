@@ -1,0 +1,14 @@
+# An OTel-instrumented agent (cmd/demo-agent): each step is an invoke_agent
+# span with a fake model call, and the MCP spans nest under it because the
+# step's trace context travels in params._meta.
+#   docker compose -f docker-compose.yaml -f agent.yaml up --build
+services:
+  traced-agent:
+    build: {context: ../.., dockerfile: deploy/compose/demo-agent.Dockerfile}
+    command: ["-url", "http://mcp-exporter:8080/mcp", "-tasks=${AGENT_TASKS:-true}"]
+    environment:
+      OTEL_SERVICE_NAME: demo-agent
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+      OTEL_METRICS_EXPORTER: none
+    depends_on: [mcp-exporter, lgtm]
+    restart: unless-stopped

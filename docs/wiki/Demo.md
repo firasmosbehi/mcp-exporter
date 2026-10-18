@@ -14,7 +14,8 @@ What starts:
 | `mcp-server` | the reference [server-everything](https://github.com/modelcontextprotocol/servers/tree/main/src/everything), Streamable HTTP on :3001 |
 | `mcp-exporter` | the proxy, on http://localhost:8080/mcp |
 | `lgtm` | `grafana/otel-lgtm`: OTel Collector, Prometheus, Tempo, Loki, Pyroscope and Grafana (:3000, no login), with the MCP dashboard provisioned |
-| `demo-agent` | a shell-script "agent" generating realistic traffic |
+| `demo-agent` | a shell-script "agent" generating realistic traffic, with no trace context |
+| `traced-agent` | an OTel-instrumented Go agent ([cmd/demo-agent](https://github.com/firasmosbehi/mcp-exporter/blob/main/cmd/demo-agent/main.go)): MCP spans nest under its steps |
 
 The demo agent:
 - opens a session and keeps a **GET stream** open, as real clients do, so server log messages flow;
@@ -38,10 +39,14 @@ The demo agent:
   server logs have `mcp.log.level` and `mcp.log.data`. Both carry `trace_id`.
 - **Metrics** (Explore → Prometheus): `mcp_server_operation_duration_seconds`, `mcp_task_duration_seconds`, …
 
-![A tasks/result span](https://raw.githubusercontent.com/firasmosbehi/mcp-exporter/main/docs/images/trace.png)
+- **Agent traces** (Explore → Tempo): `{resource.service.name="demo-agent"}`. Each step (`invoke_agent demo-agent`) holds
+  two `chat demo-model` spans (`gen_ai.request.model`, token usage) and the MCP `tools/call` spans the exporter recorded. These
+  nest because the agent puts its trace context into `params._meta` (see [[Architecture]]). Every few steps one call runs as
+  an MCP Task, and its `tasks/get` polls link back to the call that created it.
 
-The demo agent sends no trace context, so every request is its own trace. That's what you get from any uninstrumented client.
-When the agent is instrumented, MCP spans nest under its spans through `params._meta` (see [[Architecture]]).
+![An agent step with its model calls and MCP tool calls](https://raw.githubusercontent.com/firasmosbehi/mcp-exporter/main/docs/images/agent-trace.png)
+
+The shell `demo-agent` sends no trace context, so each of its requests is its own trace. That's what you get from any uninstrumented client.
 
 **Your own traffic:** point any MCP client at `http://localhost:8080/mcp`, for example the
 [MCP Inspector](https://github.com/modelcontextprotocol/inspector).

@@ -16,6 +16,13 @@ All notable changes are documented here. The format follows
 - Wiki, Client Mode: why OAuth servers that enforce token audience can't work through the HTTP client form, with the RFC 9728 and RFC 8707 details.
   Recipes: the `mcp-remote` stdio form, or `validateResourceURL` in agents built on the TypeScript SDK (#55).
 
+- **Instrumented demo agent** (#56): `cmd/demo-agent` and `deploy/compose/agent.yaml`.
+  - Each agent step is an `invoke_agent` span with fake `chat` model calls carrying `gen_ai.*` attributes.
+  - MCP spans nest under the step through `params._meta`.
+  - The demo starts it alongside the shell agent, and the smoke test asserts the nesting in Tempo.
+
+- `deploy/compose/screenshot.sh` refreshes the README and wiki screenshots from a running demo. The dashboard image now shows every row (#58).
+
 ### Changed
 - With `OTEL_METRICS_EXPORTER=prometheus`, metrics now carry a `service_name` label, so gateway routes stay apart on one `/metrics` endpoint.
 

@@ -1,5 +1,7 @@
 # Demo overlay: a traffic generator that behaves like an agent, so the
-# dashboard, traces, logs and task metrics have something to show.
+# dashboard, traces, logs and task metrics have something to show. Its
+# requests carry no trace context; agent.yaml adds an instrumented agent
+# whose traces nest MCP calls under agent steps.
 #   deploy/compose/demo.sh            (or: docker compose -f docker-compose.yaml -f demo.yaml up --build)
 services:
   demo-agent:
