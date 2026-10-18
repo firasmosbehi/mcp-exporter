@@ -17,6 +17,10 @@ client ───► │ transport (stdio pipes | HTTP reverse proxy + SSE observ
 - **Correlation key:** a request opens a pending entry keyed by **(scope, direction, id)**, and the response travelling the other way closes it.
   - The **scope** is the id space: the stdio pipe, the HTTP session (`Mcp-Session-Id`), or, before a session exists
     (`initialize`), the single HTTP exchange.
+  - **2026-07-28 is stateless:** there's no session, and each request is answered on its own response stream. Each
+    exchange is therefore its own scope. When an exchange's response ends with a request still open, that request ends at
+    once: `cancelled` if the stream closed, or the HTTP status if the upstream failed (`502` if unreachable).
+    With a session (up to 2025-11-25), a response may come on another stream, so those requests wait for it or for the idle sweep.
   - **Legacy HTTP+SSE** (2024-11-05) has no session header, and responses arrive on the `GET /sse` stream, not on the POST.
     The stream's `endpoint` event names the POST URL. Its query (`sessionId`, or `session_id` in the Python SDK) becomes the
     session and scope for that stream and for POSTs to exactly that URL, and the session ends when the stream closes.
@@ -59,6 +63,7 @@ session, protocol version and server name. The table is updated when a combinati
 |---|---|---|
 | TypeScript SDK (server-everything) / curl | TypeScript SDK `server-everything` | Streamable HTTP (CI smoke test), legacy HTTP+SSE |
 | Python SDK 1.30 `ClientSession` | Python SDK 1.30 FastMCP | Streamable HTTP, legacy HTTP+SSE (`session_id`), stdio |
+| curl, raw 2026-07-28 | Python SDK 2.3 `MCPServer` (protocol 2026-07-28) | Streamable HTTP (CI smoke test), stdio; includes `server/discover` and `subscriptions/listen` |
 | Go `cmd/demo-agent` | TypeScript SDK `server-everything` | Streamable HTTP, with MCP Tasks (CI smoke test) |
 | Claude Desktop config via `mcp-remote` | `mcp.deepwiki.com` | stdio client mode |
 

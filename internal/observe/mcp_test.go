@@ -343,3 +343,85 @@ func TestIDCanonicalCorrelation(t *testing.T) {
 		t.Errorf("cancel with requestId 2 should end the 2e0 request: %v", a)
 	}
 }
+
+// Protocol 2026-07-28 is stateless: no initialize, so version and names come
+// from each message's _meta; tasks (an extension now) can arrive unasked and
+// flat; subscriptions/listen stays open until cancelled and that's no error.
+func TestStateless20260728(t *testing.T) {
+	tr, spans, reader := setup(t)
+	meta := `"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"agent","version":"2"},"io.modelcontextprotocol/clientCapabilities":{"extensions":{"io.modelcontextprotocol/tasks":{}}}}`
+	srv := `"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"weather","version":"1"}}`
+
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"forecast","arguments":{},`+meta+`}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":1,"result":{"resultType":"task","taskId":"T1","status":"working","ttlMs":60000,`+srv+`}}`)
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":2,"method":"tasks/get","params":{"taskId":"T1",`+meta+`}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":2,"result":{"resultType":"complete","taskId":"T1","status":"completed","result":{"content":[]},`+srv+`}}`)
+	// A second task finishes through the extension's notification.
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"forecast",`+meta+`}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":3,"result":{"resultType":"task","taskId":"T2","status":"working"}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","method":"notifications/tasks","params":{"taskId":"T2","status":"failed","error":{"code":-32603,"message":"x"}}}`)
+	// A subscription: survives an idle sweep, ends without error when cancelled.
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":4,"method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true},`+meta+`}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{"_meta":{"io.modelcontextprotocol/subscriptionId":4}}}`)
+	tr.Sweep(0) // idle 0: every ordinary request this old would be swept
+	if n := len(spans.GetSpans()); n != 3 {
+		t.Fatalf("after the sweep want 3 spans (listen still open), got %d", n)
+	}
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":4}}`)
+
+	got := spans.GetSpans()
+	if len(got) != 4 {
+		t.Fatalf("want 4 spans, got %d", len(got))
+	}
+	for _, s := range got {
+		a := attrs(s)
+		if a["mcp.protocol.version"] != "2026-07-28" || a["mcp.client.name"] != "agent" {
+			t.Errorf("%s: per-request _meta not applied: %v", s.Name, a)
+		}
+		if a["error.type"] != "" {
+			t.Errorf("%s: unexpected error.type %q", s.Name, a["error.type"])
+		}
+	}
+	if a := attrs(got[0]); a["mcp.server.name"] != "weather" || a["mcp.task.id"] != "T1" || a["mcp.task.status"] != "working" {
+		t.Errorf("unsolicited flat task or result serverInfo missed: %v", a)
+	}
+	if len(got[1].Links) != 1 || got[1].Links[0].SpanContext.SpanID() != got[0].SpanContext.SpanID() {
+		t.Error("tasks/get should link to the span that created the task")
+	}
+
+	var rm metricdata.ResourceMetrics
+	reader.Collect(context.Background(), &rm)
+	tasks, inflight := map[string]uint64{}, int64(0)
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			switch m.Name {
+			case "mcp.task.duration":
+				for _, dp := range m.Data.(metricdata.Histogram[float64]).DataPoints {
+					st, _ := dp.Attributes.Value("mcp.task.status")
+					tasks[st.AsString()] += dp.Count
+				}
+			case "mcp.server.requests.inflight":
+				for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
+					inflight += dp.Value
+				}
+			}
+		}
+	}
+	if tasks["completed"] != 1 || tasks["failed"] != 1 {
+		t.Errorf("want one completed and one failed task, got %v", tasks)
+	}
+	if inflight != 0 {
+		t.Errorf("in-flight should be back to 0 (subscriptions never count), got %d", inflight)
+	}
+}
+
+// Shutting down with a subscription open ends it without an error.
+func TestListenClosedAtShutdown(t *testing.T) {
+	tr, spans, _ := setup(t)
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":1,"method":"subscriptions/listen","params":{}}`)
+	tr.Close()
+	got := spans.GetSpans()
+	if len(got) != 1 || attrs(got[0])["error.type"] != "" {
+		t.Fatalf("want one listen span without error, got %d spans %v", len(got), got)
+	}
+}

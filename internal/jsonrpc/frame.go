@@ -67,23 +67,41 @@ func marshal(v any) ([]byte, error) {
 
 // Params holds the fields of request params that telemetry cares about.
 type Params struct {
-	Name            string            `json:"name"` // tools/call, prompts/get
-	URI             string            `json:"uri"`  // resources/*
-	ProtocolVersion string            `json:"protocolVersion"`
-	ClientInfo      *Info             `json:"clientInfo"`
-	RequestID       json.RawMessage   `json:"requestId"` // notifications/cancelled
-	Level           string            `json:"level"`     // notifications/message
+	Name            string            `json:"name"`            // tools/call, prompts/get
+	URI             string            `json:"uri"`             // resources/*
+	ProtocolVersion string            `json:"protocolVersion"` // initialize; or 2026-07-28 per-request _meta
+	ClientInfo      *Info             `json:"clientInfo"`      // initialize; or 2026-07-28 per-request _meta
+	RequestID       json.RawMessage   `json:"requestId"`       // notifications/cancelled
+	Level           string            `json:"level"`           // notifications/message
 	Logger          string            `json:"logger"`
 	Data            json.RawMessage   `json:"data"`
 	Arguments       json.RawMessage   `json:"arguments"`
 	Task            json.RawMessage   `json:"task"`   // present on task-augmented requests
-	TaskID          string            `json:"taskId"` // tasks/get, tasks/result, tasks/cancel, notifications/tasks/status
-	Status          string            `json:"status"` // notifications/tasks/status
+	TaskID          string            `json:"taskId"` // tasks/get, tasks/result, tasks/cancel, tasks/update, task notifications
+	Status          string            `json:"status"` // notifications/tasks/status, notifications/tasks
 	Meta            map[string]string `json:"-"`      // string-valued _meta entries (trace context)
 	RelatedTask     string            `json:"-"`      // _meta["io.modelcontextprotocol/related-task"].taskId
 }
 
-const relatedTaskKey = "io.modelcontextprotocol/related-task"
+const (
+	relatedTaskKey = "io.modelcontextprotocol/related-task"
+	// 2026-07-28 is stateless: every request names its protocol version and
+	// client in _meta, and every result its server.
+	protocolKey   = "io.modelcontextprotocol/protocolVersion"
+	clientInfoKey = "io.modelcontextprotocol/clientInfo"
+	serverInfoKey = "io.modelcontextprotocol/serverInfo"
+)
+
+// metaInfo reads an Implementation ({name, version}) from _meta.
+func metaInfo(meta map[string]any, key string) *Info {
+	m, ok := meta[key].(map[string]any)
+	if !ok {
+		return nil
+	}
+	name, _ := m["name"].(string)
+	version, _ := m["version"].(string)
+	return &Info{Name: name, Version: version}
+}
 
 func relatedTask(meta map[string]any) string {
 	if rt, ok := meta[relatedTaskKey].(map[string]any); ok {
@@ -110,6 +128,12 @@ func (m *Message) ParseParams() Params {
 	}
 	_ = json.Unmarshal(m.Params, &raw)
 	p.RelatedTask = relatedTask(raw.Meta)
+	if p.ProtocolVersion == "" {
+		p.ProtocolVersion, _ = raw.Meta[protocolKey].(string)
+	}
+	if p.ClientInfo == nil {
+		p.ClientInfo = metaInfo(raw.Meta, clientInfoKey)
+	}
 	for k, v := range raw.Meta {
 		if s, ok := v.(string); ok {
 			if p.Meta == nil {
@@ -123,11 +147,12 @@ func (m *Message) ParseParams() Params {
 
 // Result holds the fields of a response result that telemetry cares about.
 type Result struct {
+	ResultType      string `json:"resultType"` // 2026-07-28: complete, input_required, task (Tasks extension)
 	IsError         bool   `json:"isError"`
 	ProtocolVersion string `json:"protocolVersion"`
-	ServerInfo      *Info  `json:"serverInfo"`
-	Task            *Task  `json:"task"`   // CreateTaskResult
-	TaskID          string `json:"taskId"` // tasks/get, tasks/cancel
+	ServerInfo      *Info  `json:"serverInfo"` // initialize; or _meta on any 2026-07-28 result
+	Task            *Task  `json:"task"`       // CreateTaskResult (2025-11-25 nests it; the Tasks extension is flat)
+	TaskID          string `json:"taskId"`     // tasks/get, tasks/cancel
 	Status          string `json:"status"`
 	RelatedTask     string `json:"-"` // _meta related-task, e.g. on tasks/result
 }
@@ -145,6 +170,12 @@ func (m *Message) ParseResult() Result {
 	}
 	_ = json.Unmarshal(m.Result, &raw)
 	r.RelatedTask = relatedTask(raw.Meta)
+	if r.ServerInfo == nil {
+		r.ServerInfo = metaInfo(raw.Meta, serverInfoKey)
+	}
+	if r.ResultType == "task" && r.Task == nil && r.TaskID != "" {
+		r.Task = &Task{TaskID: r.TaskID, Status: r.Status}
+	}
 	return r
 }
 

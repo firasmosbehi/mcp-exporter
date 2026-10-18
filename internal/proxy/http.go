@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -92,6 +93,13 @@ func handler(t *observe.Tracker, upstream *url.URL) (http.Handler, *readiness) {
 			r.Out.Header.Set("Accept-Encoding", "identity")
 		},
 		FlushInterval: -1, // SSE must not be buffered
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if ex := r.Context().Value(exchangeKey{}).(*exchange); ex.session == "" {
+				t.EndScope(ex.scope, "502")
+			}
+			log.Printf("http: proxy error: %v", err) // what httputil's default handler does
+			w.WriteHeader(http.StatusBadGateway)
+		},
 		ModifyResponse: func(resp *http.Response) error {
 			ex := resp.Request.Context().Value(exchangeKey{}).(*exchange)
 			sess := ex.session
@@ -121,6 +129,16 @@ func handler(t *observe.Tracker, upstream *url.URL) (http.Handler, *readiness) {
 				resp.Body = o
 			case strings.HasPrefix(ct, "application/json"):
 				resp.Body = &jsonObserver{ReadCloser: resp.Body, frame: frame}
+			}
+			// Without a session, a request's answer can only come on its own
+			// response (always so from 2026-07-28). Once that's over, whatever
+			// is still open was cancelled (stream closed) or failed (HTTP error).
+			if sess == "" {
+				reason := "cancelled"
+				if resp.StatusCode >= 400 {
+					reason = strconv.Itoa(resp.StatusCode)
+				}
+				resp.Body = &onClose{ReadCloser: resp.Body, fn: func() { t.EndScope(ex.scope, reason) }}
 			}
 			return nil
 		},
@@ -232,6 +250,21 @@ func gunzip(b []byte) ([]byte, error) {
 		return nil, errTooBig
 	}
 	return out, nil
+}
+
+// onClose runs fn once, after the body it wraps is closed.
+type onClose struct {
+	io.ReadCloser
+	fn func()
+}
+
+func (o *onClose) Close() error {
+	err := o.ReadCloser.Close()
+	if o.fn != nil {
+		o.fn()
+		o.fn = nil
+	}
+	return err
 }
 
 // jsonObserver buffers a JSON response as it streams to the client and

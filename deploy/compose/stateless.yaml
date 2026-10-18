@@ -1,0 +1,27 @@
+# A protocol 2026-07-28 (stateless) server behind its own exporter, for the
+# smoke test: Python SDK 2.x, no initialize, no sessions.
+#   docker compose -f docker-compose.yaml -f stateless.yaml up --build
+services:
+  mcp-server-2026:
+    image: python:3.13-slim
+    command: ["sh", "-c", "pip install -q --root-user-action=ignore mcp==2.3.0 && python /srv.py"]
+    configs: [{source: srv-2026, target: /srv.py}]
+
+  mcp-exporter-2026:
+    build: ../..
+    command: ["http", "-listen", ":8080", "-upstream", "http://mcp-server-2026:3001"]
+    environment:
+      OTEL_SERVICE_NAME: stateless
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+      OTEL_METRIC_EXPORT_INTERVAL: "10000"
+    depends_on: [mcp-server-2026, lgtm]
+
+configs:
+  srv-2026:
+    content: |
+      from mcp.server.mcpserver import MCPServer
+      mcp = MCPServer("stateless-demo")
+      @mcp.tool()
+      def add(a: int, b: int) -> int:
+          return a + b
+      mcp.run(transport="streamable-http", host="0.0.0.0", port=3001)

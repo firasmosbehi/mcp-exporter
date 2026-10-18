@@ -79,6 +79,10 @@ type task struct {
 	attrs           []attribute.KeyValue // method and tool/prompt of the origin
 }
 
+// listenMethod opens a 2026-07-28 subscription: a request whose response is a
+// long-lived stream of change notifications.
+const listenMethod = "subscriptions/listen"
+
 type pendingKey struct {
 	scope string
 	dir   Dir
@@ -99,6 +103,10 @@ type pending struct {
 	attrs      []attribute.KeyValue     // metric attributes
 	base       metric.MeasurementOption // attributes at start, for the inflight counter
 }
+
+// counted reports whether the request is in mcp.*.requests.inflight: requests
+// to the observed side, except subscriptions, which stay open by design.
+func (pd *pending) counted() bool { return pd.dir == ClientToServer && pd.method != listenMethod }
 
 type session struct {
 	start, lastSeen time.Time
@@ -232,20 +240,36 @@ func (t *Tracker) startRequest(ctx context.Context, dir Dir, scope, sess string,
 			spanAttrs = append(spanAttrs, attribute.Int("server.port", t.opts.ServerPort))
 		}
 	}
+	// Up to 2025-11-25 the version and names come from the session's
+	// initialize; from 2026-07-28 every request carries its own in _meta.
+	var protocol, serverName, clientName string
+	if m.Method != "initialize" {
+		protocol = p.ProtocolVersion
+		if p.ClientInfo != nil {
+			clientName = p.ClientInfo.Name
+		}
+	}
 	t.mu.Lock()
 	if s := t.sessions[sess]; s != nil {
-		if s.protocol != "" {
-			spanAttrs = append(spanAttrs, attribute.String("mcp.protocol.version", s.protocol))
-			metricAttrs = append(metricAttrs, attribute.String("mcp.protocol.version", s.protocol))
+		serverName = s.serverName
+		if protocol == "" {
+			protocol = s.protocol
 		}
-		if s.serverName != "" {
-			spanAttrs = append(spanAttrs, attribute.String("mcp.server.name", s.serverName))
-		}
-		if s.clientName != "" {
-			spanAttrs = append(spanAttrs, attribute.String("mcp.client.name", s.clientName))
+		if clientName == "" {
+			clientName = s.clientName
 		}
 	}
 	t.mu.Unlock()
+	if protocol != "" {
+		spanAttrs = append(spanAttrs, attribute.String("mcp.protocol.version", protocol))
+		metricAttrs = append(metricAttrs, attribute.String("mcp.protocol.version", protocol))
+	}
+	if serverName != "" {
+		spanAttrs = append(spanAttrs, attribute.String("mcp.server.name", serverName))
+	}
+	if clientName != "" {
+		spanAttrs = append(spanAttrs, attribute.String("mcp.client.name", clientName))
+	}
 
 	name := m.Method
 	switch m.Method {
@@ -292,7 +316,7 @@ func (t *Tracker) startRequest(ctx context.Context, dir Dir, scope, sess string,
 	if old != nil { // id reused before a response: close the orphan
 		t.finish(old, sess, nil, "duplicate_id")
 	}
-	if dir == ClientToServer {
+	if pd.counted() {
 		t.inflight.Add(spanCtx, 1, pd.base)
 	}
 
@@ -321,6 +345,9 @@ func (t *Tracker) endRequest(key pendingKey, sess string, m *jsonrpc.Message, er
 // ended some other way (errType says how).
 func (t *Tracker) finish(pd *pending, sess string, m *jsonrpc.Message, errType string) {
 	span := pd.span
+	if pd.method == listenMethod && (errType == "cancelled" || errType == "timeout") {
+		errType = "" // closing a subscription is how it normally ends
+	}
 	if m != nil && m.Error != nil {
 		code := strconv.Itoa(m.Error.Code)
 		span.SetAttributes(attribute.String("rpc.response.status_code", code))
@@ -336,7 +363,11 @@ func (t *Tracker) finish(pd *pending, sess string, m *jsonrpc.Message, errType s
 		}
 	} else if m != nil {
 		r := m.ParseResult()
-		if pd.augmented && r.Task != nil && r.Task.TaskID != "" {
+		if r.ServerInfo != nil && r.ServerInfo.Name != "" && pd.method != "initialize" {
+			span.SetAttributes(attribute.String("mcp.server.name", r.ServerInfo.Name))
+		}
+		// The Tasks extension (2026-07-28) lets servers return a task unasked.
+		if (pd.augmented || r.ResultType == "task") && r.Task != nil && r.Task.TaskID != "" {
 			span.SetAttributes(attribute.String("mcp.task.id", r.Task.TaskID), attribute.String("mcp.task.status", r.Task.Status))
 			t.startTask(r.Task.TaskID, span.SpanContext(), pd)
 		}
@@ -379,7 +410,7 @@ func (t *Tracker) finish(pd *pending, sess string, m *jsonrpc.Message, errType s
 	} else {
 		t.clientDur.Record(pd.ctx, dur.Seconds(), attrs)
 	}
-	if pd.dir == ClientToServer {
+	if pd.counted() {
 		t.inflight.Add(pd.ctx, -1, pd.base)
 	}
 	logAttrs := []any{"mcp.method.name", pd.method, "duration_ms", float64(dur.Microseconds()) / 1000}
@@ -395,7 +426,7 @@ func (t *Tracker) notification(ctx context.Context, dir Dir, scope string, m *js
 	case "notifications/cancelled":
 		// Sent by whoever issued the request, so the request travelled the same way.
 		t.endRequest(pendingKey{scope, dir, jsonrpc.IDKey(p.RequestID)}, "", nil, "cancelled")
-	case "notifications/tasks/status":
+	case "notifications/tasks/status", "notifications/tasks": // 2025-11-25, Tasks extension
 		t.taskStatus(p.TaskID, p.Status)
 	case "notifications/message":
 		if dir == ServerToClient {
@@ -514,7 +545,9 @@ func (t *Tracker) Sweep(idle time.Duration) {
 		}
 	}
 	for k, pd := range t.pending {
-		if pd.start.Before(cutoff) {
+		// A subscription is open for as long as the client wants; it ends when
+		// its stream closes, it is cancelled, or the exporter shuts down.
+		if pd.start.Before(cutoff) && (pd.method != listenMethod || idle < 0) {
 			orphans = append(orphans, pd)
 			delete(t.pending, k)
 		}
@@ -530,6 +563,25 @@ func (t *Tracker) Sweep(idle time.Duration) {
 	}
 	for _, id := range stale {
 		t.EndSession(id)
+	}
+}
+
+// EndScope ends the requests still open in scope, which the transport knows
+// can't be answered any more: a sessionless HTTP exchange whose response is
+// over. errType says why (an HTTP status, or "cancelled" for a closed stream).
+// ponytail: scans all pending requests; index them by scope if that shows up in profiles.
+func (t *Tracker) EndScope(scope, errType string) {
+	var ended []*pending
+	t.mu.Lock()
+	for k, pd := range t.pending {
+		if k.scope == scope {
+			ended = append(ended, pd)
+			delete(t.pending, k)
+		}
+	}
+	t.mu.Unlock()
+	for _, pd := range ended {
+		t.finish(pd, "", nil, errType)
 	}
 }
 

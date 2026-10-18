@@ -34,3 +34,21 @@ separate traces.
 |---|---|---|
 | `mcp.{client,server}.session.active`, or an up-down counter of open sessions | up-down counter | complements `mcp.*.session.duration`, which only records ended sessions |
 | `mcp.message.size` | histogram, By | per JSON-RPC frame, attribute `mcp.direction` (or reuse `rpc.message.*` conventions if preferred) |
+
+## 4. Protocol 2026-07-28 (stateless MCP)
+
+The conventions predate the stateless revision. These are the points we had to decide on ourselves:
+
+- **Source of `mcp.protocol.version`:** 2026-07-28 has no `initialize`. We read the version from each request's
+  `_meta["io.modelcontextprotocol/protocolVersion"]`. Proposed wording: "the version negotiated at initialization or, for
+  stateless protocol versions, the one the request declares."
+- **Peer identity (section 2):** the same holds for `_meta["io.modelcontextprotocol/clientInfo"]` on requests and
+  `_meta["io.modelcontextprotocol/serverInfo"]` on results.
+- **`mcp.session.id`:** it no longer applies from 2026-07-28. Its "when part of a session" condition already covers that, but a note would help.
+- **`subscriptions/listen`:** a request whose response is a long-lived stream. We propose that ending it, whether the client
+  closes it, cancels it or the server ends it gracefully, is **not** an error, and that it's excluded from in-flight counts.
+- **New caller-error codes on server spans:** `-32020` HeaderMismatch, `-32021` MissingRequiredClientCapability and `-32022`
+  UnsupportedProtocolVersion are caller mistakes, like `-32602`. We propose adding them to the codes that are not errors on
+  `SERVER` spans. Until then we follow the conventions as written and count them as errors.
+- **Tasks extension:** `CreateTaskResult` becomes flat (`resultType: "task"`), no request opt-in is needed, and
+  `notifications/tasks` replaces `notifications/tasks/status`. Section 1 applies unchanged.

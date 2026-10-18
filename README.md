@@ -29,6 +29,9 @@ See [Demo](#demo).
 | Streamable HTTP | `mcp-exporter http -listen :8080 -upstream http://server:3001` |
 | legacy HTTP+SSE (2024-11-05) | the same command; clients connect to `/sse` as before |
 
+Supported protocol versions: 2024-11-05 through **2026-07-28**. For 2026-07-28 that includes stateless requests, `server/discover`,
+`subscriptions/listen` and the Tasks extension.
+
 📖 **Full documentation: [the wiki](https://github.com/firasmosbehi/mcp-exporter/wiki)**: getting started, Kubernetes, client mode,
 telemetry reference, architecture, profiles, security, troubleshooting.
 
