@@ -108,7 +108,7 @@ Running a Collector in between is the usual production setup. It lets you do tai
 ## Troubleshooting
 
 - **Nothing arrives:** run once with `OTEL_TRACES_EXPORTER=console` to confirm spans are produced. Over stdio
-  this only works on Linux/macOS; Windows refuses console exporters in stdio mode. Export failures are counted in
+  console output goes to stderr on every platform. Export failures are counted in
   `mcp_exporter.export.errors{signal}`, and a warning goes to stderr at most every 30s.
 - **401/403:** check the header format. Each vendor above uses a different header name, and Grafana needs base64 of `id:token`.
 - **Metrics rejected but traces fine:** for Datadog, set delta temporality. For Honeycomb, set the metrics dataset header.

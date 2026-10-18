@@ -3,7 +3,7 @@
 ## Nothing shows up in my backend
 
 1. **Check that spans are produced:** run once with `OTEL_TRACES_EXPORTER=console`. In stdio mode they print to **stderr**
-   (Linux and macOS; Windows refuses console exporters in stdio mode).
+   (on every platform).
 2. **Check exports:** `mcp_exporter.export.errors{signal}` counts failures, and a warning is written to stderr at most every 30 s.
    With `OTEL_METRICS_EXPORTER=prometheus` you can see this counter even while OTLP is down.
 3. **Endpoint form:** `OTEL_EXPORTER_OTLP_ENDPOINT` is a *base* URL (`http://collector:4318`), and the SDK appends `/v1/traces`.

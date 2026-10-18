@@ -6,6 +6,9 @@ require (
 	go.opentelemetry.io/contrib/bridges/otelslog v0.21.0
 	go.opentelemetry.io/contrib/exporters/autoexport v0.72.0
 	go.opentelemetry.io/otel v1.47.0
+	go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.23.0
+	go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.47.0
+	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.47.0
 	go.opentelemetry.io/otel/log v1.47.0
 	go.opentelemetry.io/otel/metric v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
@@ -39,9 +42,6 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.47.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0 // indirect
 	go.opentelemetry.io/otel/exporters/prometheus v0.69.0 // indirect
-	go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.23.0 // indirect
-	go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.47.0 // indirect
-	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.1 // indirect
 	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
