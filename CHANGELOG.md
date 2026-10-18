@@ -5,6 +5,9 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `deploy/compose/check-profiles-versions.sh`, run in CI: fails with the exact versions to set when the profiler images drift from the Collector bundled in `grafana/otel-lgtm`. Dependabot now covers the reference stack (#53).
+
 ### Fixed
 - Console exporters (`OTEL_*_EXPORTER=console`) now write to **stderr** on every platform. On Windows, stdio mode accepts them instead of refusing them (#51).
 - Responses are matched to requests by id **value**, not raw bytes. A request with id `1.0` (or `1e0`) answered with `1` used to stay open until the `-session-idle` timeout. The string `"1"` and the number `1` remain distinct, and `jsonrpc.request.id` reports the canonical form (#50).

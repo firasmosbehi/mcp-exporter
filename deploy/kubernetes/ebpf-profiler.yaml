@@ -5,6 +5,8 @@
 #   kubectl apply -f deploy/kubernetes/ebpf-profiler.yaml
 # Edit the exporter endpoint below: any OTLP backend that accepts profiles
 # (e.g. Pyroscope, or a Collector with the service.profilesSupport gate).
+# OTLP Profiles is Alpha: run the same Collector version here as your backend
+# Collector (this repo pins 0.161.0, checked by deploy/compose/check-profiles-versions.sh).
 apiVersion: v1
 kind: Namespace
 metadata: {name: ebpf-profiler}
