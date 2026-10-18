@@ -4,3 +4,5 @@
 /.claude-flow
 /.swarm
 /ruvector.db
+# filled-in backend credentials (templates are *.env.example)
+/deploy/compose/backends/*.env

@@ -5,6 +5,9 @@ HTTP only, delta metrics) and SigNoz, plus what to expect in GenAI "LLM views", 
 
 **→ [docs/backends.md](https://github.com/firasmosbehi/mcp-exporter/blob/main/docs/backends.md)**
 
+To try one with live traffic, `BACKEND=honeycomb docker compose -f deploy/compose/backends.yaml up --build` runs the demo
+against it. Each backend has an env template in `deploy/compose/backends/`.
+
 The short version, for any OTLP backend or Collector:
 ```sh
 export OTEL_SERVICE_NAME=weather-mcp

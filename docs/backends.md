@@ -16,6 +16,22 @@ export OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=prod
 > These recipes come from each vendor's current OTLP documentation (October 2026).
 > Ingest endpoints differ per region or site, so copy yours from the vendor's console.
 
+## Try it with the demo
+
+[deploy/compose/backends.yaml](../deploy/compose/backends.yaml) runs three things: an MCP server, the exporter in front of it,
+and the OTel-instrumented demo agent. Everything exports to the backend you pick, configured only by the env file for that backend:
+
+```sh
+cp deploy/compose/backends/honeycomb.env.example deploy/compose/backends/honeycomb.env   # fill in your key
+BACKEND=honeycomb docker compose -f deploy/compose/backends.yaml up --build
+BACKEND=honeycomb docker compose -f deploy/compose/backends.yaml down
+```
+
+- `BACKEND` is one of `grafana-cloud`, `honeycomb`, `datadog` or `signoz`.
+- Each `.env.example` holds exactly the recipe below. Filled-in `*.env` files are git-ignored.
+- Add `-f deploy/compose/demo.yaml` for the full traffic mix: failures, prompts, resources and MCP Tasks.
+- Within a minute you should see two services: `demo-agent`, whose `invoke_agent` traces nest the MCP calls, and `everything`, the server.
+
 ## What you'll see in any backend
 
 - **Traces:** one span per MCP request, e.g. `tools/call get_weather`, carrying `mcp.method.name`,
