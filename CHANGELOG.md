@@ -5,6 +5,12 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Legacy HTTP+SSE servers** (protocol 2024-11-05: `GET /sse` + `POST /message?sessionId=`) are now observed correctly.
+  - Responses arrive on the GET stream, so they never matched their POSTs. Every request ended as a false `timeout` error after `-session-idle`, and no session was tracked.
+  - The session now comes from the stream's `endpoint` event and ends when the stream closes.
+  - This is not supported in gateway mode.
+
 ## [0.6.0] - 2026-10-18
 
 ### Added

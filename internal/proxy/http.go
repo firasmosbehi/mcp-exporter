@@ -79,6 +79,10 @@ func Gateway(routes []Route) http.Handler {
 
 func handler(t *observe.Tracker, upstream *url.URL) (http.Handler, *readiness) {
 	var seq atomic.Uint64
+	// Legacy HTTP+SSE (2024-11-05): the GET stream's "endpoint" event names the
+	// URL the client POSTs to, and its query identifies the session. Only
+	// queries learned that way count, so other query strings mean nothing.
+	var legacy sync.Map // endpoint RawQuery -> session id
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(upstream)
@@ -100,7 +104,21 @@ func handler(t *observe.Tracker, upstream *url.URL) (http.Handler, *readiness) {
 			frame := func(b []byte) { t.Frame(ex.ctx, observe.ServerToClient, ex.scope, sess, b) }
 			switch ct := resp.Header.Get("Content-Type"); {
 			case strings.HasPrefix(ct, "text/event-stream"):
-				resp.Body = &sseObserver{ReadCloser: resp.Body, frame: frame}
+				o := &sseObserver{ReadCloser: resp.Body, frame: frame}
+				o.endpoint = func(uri string) {
+					u, err := url.Parse(uri)
+					if err != nil || u.RawQuery == "" || sess != "" {
+						return
+					}
+					sess = legacySession(u.Query(), u.RawQuery)
+					ex.scope = sess
+					legacy.Store(u.RawQuery, sess)
+					o.closed = func() {
+						legacy.Delete(u.RawQuery)
+						t.EndSession(sess)
+					}
+				}
+				resp.Body = o
 			case strings.HasPrefix(ct, "application/json"):
 				resp.Body = &jsonObserver{ReadCloser: resp.Body, frame: frame}
 			}
@@ -122,6 +140,11 @@ func handler(t *observe.Tracker, upstream *url.URL) (http.Handler, *readiness) {
 		ex := &exchange{
 			ctx:     otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header)),
 			session: r.Header.Get(sessionHeader),
+		}
+		if ex.session == "" && r.URL.RawQuery != "" {
+			if s, ok := legacy.Load(r.URL.RawQuery); ok {
+				ex.session = s.(string)
+			}
 		}
 		// Requests share an id space only within a session; before one exists
 		// (initialize) each HTTP exchange is its own scope.
@@ -236,13 +259,36 @@ func (o *jsonObserver) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// legacySession picks the session id out of a legacy endpoint's query
+// (sessionId in the TypeScript SDK, session_id in Python), else the query.
+func legacySession(q url.Values, raw string) string {
+	for _, k := range []string{"sessionId", "session_id"} {
+		if v := q.Get(k); v != "" {
+			return v
+		}
+	}
+	return raw
+}
+
 // sseObserver parses Server-Sent Events as they stream past and observes the
-// data of each event. The bytes forwarded are never modified.
+// data of each event. The bytes forwarded are never modified. A legacy
+// "endpoint" event goes to endpoint instead; closed runs when the stream ends.
 type sseObserver struct {
 	io.ReadCloser
-	frame func([]byte)
-	line  []byte
-	data  []byte
+	frame    func([]byte)
+	endpoint func(string)
+	closed   func()
+	line     []byte
+	data     []byte
+	event    string
+}
+
+func (o *sseObserver) Close() error {
+	if o.closed != nil {
+		o.closed()
+		o.closed = nil
+	}
+	return o.ReadCloser.Close()
 }
 
 func (o *sseObserver) Read(p []byte) (int, error) {
@@ -257,10 +303,15 @@ func (o *sseObserver) Read(p []byte) (int, error) {
 		l := bytes.TrimSuffix(o.line, []byte{'\r'})
 		switch {
 		case len(l) == 0: // blank line dispatches the event
-			if len(o.data) > 0 {
+			switch {
+			case o.event == "endpoint" && o.endpoint != nil:
+				o.endpoint(string(o.data))
+			case len(o.data) > 0:
 				o.frame(o.data)
 			}
-			o.data = o.data[:0]
+			o.data, o.event = o.data[:0], ""
+		case bytes.HasPrefix(l, []byte("event:")):
+			o.event = string(bytes.TrimSpace(bytes.TrimPrefix(l, []byte("event:"))))
 		case bytes.HasPrefix(l, []byte("data:")):
 			d := bytes.TrimPrefix(bytes.TrimPrefix(l, []byte("data:")), []byte(" "))
 			if len(o.data) > 0 {
