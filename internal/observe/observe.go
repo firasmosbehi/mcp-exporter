@@ -4,15 +4,21 @@ package observe
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	promexporter "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
@@ -38,14 +44,43 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 	if _, set := os.LookupEnv("OTEL_GO_X_OBSERVABILITY"); !set {
 		os.Setenv("OTEL_GO_X_OBSERVABILITY", "true")
 	}
+	distroVersion = version
+	p, err := NewProviders(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	otel.SetTracerProvider(p.Tracer)
+	otel.SetMeterProvider(p.Meter)
+	global.SetLoggerProvider(p.Logger)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+	otel.SetErrorHandler(newErrorHandler())
+	return p.Shutdown, nil
+}
+
+var distroVersion = "dev"
+
+// Providers is one set of trace, metric and log providers sharing a resource.
+type Providers struct {
+	Tracer *sdktrace.TracerProvider
+	Meter  *sdkmetric.MeterProvider
+	Logger *sdklog.LoggerProvider
+}
+
+// NewProviders builds providers configured from the OTEL_* env vars, with
+// service.name overridden when serviceName is set (one per gateway route).
+func NewProviders(ctx context.Context, serviceName string) (*Providers, error) {
+	attrs := []attribute.KeyValue{
+		attribute.String("telemetry.distro.name", "mcp-exporter"),
+		attribute.String("telemetry.distro.version", distroVersion),
+	}
+	if serviceName != "" {
+		attrs = append(attrs, attribute.String("service.name", serviceName))
+	}
 	res, err := resource.New(ctx,
 		resource.WithFromEnv(),
 		resource.WithTelemetrySDK(),
 		resource.WithHost(),
-		resource.WithAttributes(
-			attribute.String("telemetry.distro.name", "mcp-exporter"),
-			attribute.String("telemetry.distro.version", version),
-		),
+		resource.WithAttributes(attrs...), // last, so it wins over the env
 	)
 	if err != nil {
 		return nil, err
@@ -63,20 +98,16 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 	if err != nil {
 		return nil, err
 	}
-
-	tp := sdktrace.NewTracerProvider(sdktrace.WithResource(res), sdktrace.WithBatcher(spanExp))
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithResource(res), sdkmetric.WithReader(metricReader))
-	lp := sdklog.NewLoggerProvider(sdklog.WithResource(res), sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)))
-
-	otel.SetTracerProvider(tp)
-	otel.SetMeterProvider(mp)
-	global.SetLoggerProvider(lp)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
-	otel.SetErrorHandler(newErrorHandler())
-
-	return func(ctx context.Context) error {
-		return errors.Join(tp.Shutdown(ctx), mp.Shutdown(ctx), lp.Shutdown(ctx))
+	return &Providers{
+		Tracer: sdktrace.NewTracerProvider(sdktrace.WithResource(res), sdktrace.WithBatcher(spanExp)),
+		Meter:  sdkmetric.NewMeterProvider(sdkmetric.WithResource(res), sdkmetric.WithReader(metricReader)),
+		Logger: sdklog.NewLoggerProvider(sdklog.WithResource(res), sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp))),
 	}, nil
+}
+
+// Shutdown flushes and stops all three providers.
+func (p *Providers) Shutdown(ctx context.Context) error {
+	return errors.Join(p.Tracer.Shutdown(ctx), p.Meter.Shutdown(ctx), p.Logger.Shutdown(ctx))
 }
 
 // errorHandler counts SDK errors (mostly failed exports) by signal, so a dead
@@ -136,6 +167,9 @@ func spanExporter(ctx context.Context) (sdktrace.SpanExporter, error) {
 }
 
 func metricReader(ctx context.Context) (sdkmetric.Reader, error) {
+	if strings.TrimSpace(os.Getenv("OTEL_METRICS_EXPORTER")) == "prometheus" {
+		return promReader()
+	}
 	if console("METRICS") {
 		exp, err := stdoutmetric.New(stdoutmetric.WithWriter(os.Stderr))
 		if err != nil {
@@ -151,4 +185,34 @@ func logExporter(ctx context.Context) (sdklog.Exporter, error) {
 		return stdoutlog.New(stdoutlog.WithWriter(os.Stderr))
 	}
 	return autoexport.NewLogExporter(ctx)
+}
+
+var (
+	promOnce sync.Once
+	promReg  = prometheus.NewRegistry()
+)
+
+// promReader replaces autoexport's Prometheus reader, which starts a server
+// per reader: gateway routes each have a reader, and all must share one
+// /metrics. service.name becomes a service_name label to keep routes apart.
+func promReader() (sdkmetric.Reader, error) {
+	promOnce.Do(func() {
+		host, port := os.Getenv("OTEL_EXPORTER_PROMETHEUS_HOST"), os.Getenv("OTEL_EXPORTER_PROMETHEUS_PORT")
+		if host == "" {
+			host = "localhost"
+		}
+		if port == "" {
+			port = "9464"
+		}
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.HandlerFor(promReg, promhttp.HandlerOpts{}))
+		srv := &http.Server{Addr: net.JoinHostPort(host, port), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			if err := srv.ListenAndServe(); err != nil {
+				otel.Handle(fmt.Errorf("prometheus metrics listener: %w", err))
+			}
+		}()
+	})
+	return promexporter.New(promexporter.WithRegisterer(promReg),
+		promexporter.WithResourceAsConstantLabels(attribute.NewAllowKeysFilter("service.name")))
 }

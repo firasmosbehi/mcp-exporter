@@ -18,7 +18,8 @@ Three layers, with no config file:
 | `-max-payload` | both | `4096` | truncate captured payloads and server log data to this many bytes |
 | `-pprof` | both | off | serve Go pprof on this address, e.g. `127.0.0.1:6060` ([[Profiles]]) |
 | `-listen` | http | `:8080` | proxy listen address (`/healthz`, `/readyz` are served here too) |
-| `-upstream` | http | required | base URL of the MCP server; request paths pass through unchanged |
+| `-upstream` | http | this or `-route` | base URL of the MCP server; request paths pass through unchanged |
+| `-route NAME=URL` | http | | repeatable gateway mode: `/NAME/...` goes to URL with `/NAME` stripped, exported as `service.name=NAME`; `/NAME/readyz` per route, `/readyz` for all ([[Kubernetes]]) |
 | `-session-idle` | http | `30m` | end sessions, requests and tasks idle this long |
 | `-tls-cert`, `-tls-key` | http | | serve TLS |
 | `-tls-client-ca` | http | | require client certificates signed by this CA (mTLS); needs `-tls-cert`/`-tls-key` |
@@ -29,7 +30,7 @@ All read by the OpenTelemetry SDK. The most useful:
 
 | Variable | Values |
 |---|---|
-| `OTEL_SERVICE_NAME` | the MCP server's name: one per server |
+| `OTEL_SERVICE_NAME` | the MCP server's name: one per server (in gateway mode, the route name wins for route telemetry) |
 | `OTEL_RESOURCE_ATTRIBUTES` | `deployment.environment.name=prod,team=payments` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://collector:4318`; per signal: `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_ENDPOINT` |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` (default), `grpc` |

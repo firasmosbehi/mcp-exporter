@@ -5,6 +5,17 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Gateway mode** (#54): `-route NAME=URL` (repeatable) puts one exporter in front of several MCP servers.
+  - `/NAME/...` is proxied with the prefix stripped, and each route exports its telemetry as `service.name=NAME`.
+  - Sessions and request ids are tracked per route.
+  - `/readyz` aggregates all upstreams, and `/NAME/readyz` checks one.
+  - Helm: `gateway.routes` deploys the exporter without a server sidecar.
+  - Compose: the `gateway.yaml` overlay, covered by the smoke test.
+
+### Changed
+- With `OTEL_METRICS_EXPORTER=prometheus`, metrics now carry a `service_name` label, so gateway routes stay apart on one `/metrics` endpoint.
+
 ## [0.5.0] - 2026-10-18
 
 ### Added

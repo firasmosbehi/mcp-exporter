@@ -21,6 +21,7 @@ spec:
       {{- end }}
     spec:
       containers:
+        {{- if not .Values.gateway.routes }}
         - name: server
           image: {{ .Values.server.image }}
           {{- with .Values.server.command }}
@@ -33,12 +34,17 @@ spec:
           env: {{- toYaml . | nindent 12 }}
           {{- end }}
           resources: {{- toYaml .Values.server.resources | nindent 12 }}
+        {{- end }}
         - name: mcp-exporter
           image: "{{ .Values.exporter.image }}:{{ .Values.exporter.tag | default .Chart.AppVersion }}"
           args:
             - http
             - -listen=:{{ .Values.exporter.port }}
+            {{- range .Values.gateway.routes }}
+            - -route={{ required "gateway.routes[].name is required" .name }}={{ required "gateway.routes[].url is required" .url }}
+            {{- else }}
             - -upstream=http://127.0.0.1:{{ .Values.server.port }}
+            {{- end }}
             {{- if .Values.exporter.pprof.enabled }}
             - -pprof=:{{ .Values.exporter.pprof.port }}
             {{- end }}

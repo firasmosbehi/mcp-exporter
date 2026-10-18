@@ -8,6 +8,15 @@ server:
   env: [{name: PORT, value: "3001"}]
   resources: {}
 
+# Gateway mode: one exporter in front of several MCP servers that run
+# elsewhere. When routes are set, no server sidecar is deployed; each route is
+# served at /<name>/ (prefix stripped) and exported as service.name=<name>.
+# /readyz is ready when every upstream is; /<name>/readyz checks one.
+gateway:
+  routes: []
+  # - {name: github, url: "http://github-mcp.tools:3000"}
+  # - {name: jira, url: "http://jira-mcp.tools:3000"}
+
 exporter:
   image: ghcr.io/firasmosbehi/mcp-exporter
   tag: ""               # defaults to the chart appVersion

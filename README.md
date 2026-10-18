@@ -97,6 +97,20 @@ helm install weather oci://ghcr.io/firasmosbehi/charts/mcp-exporter --version 0.
 #   --set exporter.prometheus.enabled=true --set serviceMonitor.enabled=true
 ```
 
+### Gateway mode: one exporter for many servers
+
+```sh
+mcp-exporter http -listen :8080 \
+  -route github=http://github-mcp:3000 \
+  -route jira=http://jira-mcp:3000
+# agents connect to http://gateway:8080/github/mcp and /jira/mcp
+```
+
+Each route serves `/NAME/...` with the `/NAME` prefix stripped. Its telemetry carries `service.name=NAME`, so every server still shows up as its own service.
+Sessions and request ids are tracked per route. `/readyz` is ready when every upstream is, and `/NAME/readyz` checks a single route.
+In Helm, set `gateway.routes` (`[{name: github, url: http://github-mcp.tools:3000}]`). The chart then deploys only the exporter.
+Gateway mode is observability only: it adds no auth or policy.
+
 ### Client mode: remote MCP servers you don't run
 
 `-role client` observes from the agent's side, for SaaS or third-party MCP endpoints:
@@ -150,7 +164,7 @@ For copy-paste recipes for **Grafana Cloud, Honeycomb, Datadog and SigNoz**, see
 |---|---|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://collector:4318` (`OTEL_EXPORTER_OTLP_PROTOCOL=grpc` for `:4317`) |
 | `OTEL_TRACES_EXPORTER` / `OTEL_LOGS_EXPORTER` | `otlp` (default), `console`, `none` |
-| `OTEL_METRICS_EXPORTER` | `otlp` (default), `prometheus` (serves `localhost:9464/metrics`; in containers set `OTEL_EXPORTER_PROMETHEUS_HOST=0.0.0.0`), `console`, `none` |
+| `OTEL_METRICS_EXPORTER` | `otlp` (default), `prometheus` (serves `localhost:9464/metrics` with a `service_name` label; in containers set `OTEL_EXPORTER_PROMETHEUS_HOST=0.0.0.0`), `console`, `none` |
 | `OTEL_TRACES_SAMPLER` (+ `_ARG`) | `parentbased_traceidratio` + `0.1` |
 | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | identify the server (`deployment.environment.name=prod,...`) |
 | `OTEL_EXPORTER_OTLP_HEADERS`, `_CERTIFICATE`, `_CLIENT_CERTIFICATE`, `_CLIENT_KEY` | backend auth and mTLS |
@@ -167,6 +181,7 @@ Flags (`mcp-exporter <mode> -h`):
 | `-capture-tools` | all | comma-separated allowlist of tools whose payloads are captured |
 | `-redact-keys` | see Security | regexp of object keys whose values are redacted (replaces the default) |
 | `-listen`, `-upstream` | `:8080`, — | http mode; request paths pass through to the upstream base URL |
+| `-route NAME=URL` | — | http mode, repeatable, instead of `-upstream`: gateway mode (see above) |
 | — | — | http mode: `GET /healthz` is liveness, and `GET /readyz` returns 503 while the upstream refuses TCP connections (cached 2s) |
 | `-session-idle` | `30m` | http mode; ends abandoned sessions and requests that never got a response |
 | `-pprof` | off | serve the exporter's Go pprof on this address (see Profiles) |
