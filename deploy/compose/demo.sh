@@ -4,7 +4,7 @@
 #   deploy/compose/demo.sh down         stop and remove everything
 set -eu
 cd "$(dirname "$0")"
-files="-f docker-compose.yaml -f demo.yaml"
+files="-f docker-compose.yaml -f demo.yaml -f agent.yaml"
 [ "${PROFILES:-}" = 1 ] && files="$files -f profiling.yaml"
 if [ "${1:-}" = down ]; then
   docker compose -p mcp-demo $files -f profiling.yaml down -v

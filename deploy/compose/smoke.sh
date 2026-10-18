@@ -9,7 +9,8 @@ set -eu
 cd "$(dirname "$0")"
 P=mcp-smoke
 N=20
-files="-f docker-compose.yaml -f gateway.yaml"
+files="-f docker-compose.yaml -f gateway.yaml -f agent.yaml"
+export AGENT_TASKS=false # its calls must not change the exact task counts below
 [ "${PROFILES:-}" = 1 ] && files="$files -f profiling.yaml"
 compose() { docker compose -p "$P" $files "$@"; }
 [ "${KEEP:-}" = 1 ] || trap 'compose down -v >/dev/null 2>&1' EXIT
@@ -106,6 +107,11 @@ for r in gw-alpha gw-beta; do
     || fail "no tools/list trace for service $r in Tempo"
 done
 echo "gateway ok"
+
+# Instrumented agent (#56): its MCP calls nest under its agent steps.
+retry sh -c "curl -s -G 'http://lgtm:3200/api/search?limit=5' --data-urlencode 'q={resource.service.name=\"demo-agent\" && span.gen_ai.operation.name=\"invoke_agent\"} >> {resource.service.name=\"everything\" && span.mcp.method.name=\"tools/call\"}' | grep -q '\"rootServiceName\":\"demo-agent\"'" \
+  || fail "no trace with an MCP span nested under a demo-agent step"
+echo "agent ok"
 IN
 
 [ "${PROFILES:-}" = 1 ] && docker run --rm -i --network "${P}_default" curlimages/curl:8.11.1 sh <<'IN'

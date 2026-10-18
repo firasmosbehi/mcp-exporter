@@ -150,10 +150,13 @@ a call with invalid arguments, prompts, resources, and the task-required `simula
 (create → poll `tasks/get` → `tasks/result`). Every ~40 rounds it ends the session and starts a new one.
 Point your own MCP client at `http://localhost:8080/mcp` to add your traffic alongside it.
 
-![A tasks/result span in Tempo](docs/images/trace.png)
+A second agent, `traced-agent` ([cmd/demo-agent](cmd/demo-agent/main.go), [agent.yaml](deploy/compose/agent.yaml)), is instrumented with OTel.
+Each step is an `invoke_agent` span with fake `chat` model calls (`gen_ai.*` attributes). Its tool calls carry the step's
+trace context in `params._meta`, so the exporter's MCP spans nest under the step. Task polls link back to the call that created the task:
 
-The demo agent sends no trace context, so each request is its own trace, as with any uninstrumented client.
-With an instrumented agent, MCP spans nest under the agent's own spans through `params._meta`.
+![An agent step with its model calls and MCP tool calls in Tempo](docs/images/agent-trace.png)
+
+The shell agent sends no trace context, so each of its requests is its own trace, as with any uninstrumented client.
 
 ## Configuration
 
