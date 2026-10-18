@@ -5,6 +5,8 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-18
+
 ### Added
 - **Gateway mode** (#54): `-route NAME=URL` (repeatable) puts one exporter in front of several MCP servers.
   - `/NAME/...` is proxied with the prefix stripped, and each route exports its telemetry as `service.name=NAME`.
@@ -99,7 +101,8 @@ All notable changes are documented here. The format follows
 - Signed release binaries, multi-arch distroless image, SBOMs, and the Helm chart as a signed OCI artifact.
 - `mcp-exporter version`, with the version also reported as the `telemetry.distro.version` resource attribute.
 
-[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.3.0...v0.3.1
