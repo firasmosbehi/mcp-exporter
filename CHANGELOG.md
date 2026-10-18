@@ -13,6 +13,9 @@ All notable changes are documented here. The format follows
   - Helm: `gateway.routes` deploys the exporter without a server sidecar.
   - Compose: the `gateway.yaml` overlay, covered by the smoke test.
 
+- Wiki, Client Mode: why OAuth servers that enforce token audience can't work through the HTTP client form, with the RFC 9728 and RFC 8707 details.
+  Recipes: the `mcp-remote` stdio form, or `validateResourceURL` in agents built on the TypeScript SDK (#55).
+
 ### Changed
 - With `OTEL_METRICS_EXPORTER=prometheus`, metrics now carry a `service_name` label, so gateway routes stay apart on one `/metrics` endpoint.
 

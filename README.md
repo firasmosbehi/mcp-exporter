@@ -132,7 +132,8 @@ mcp-exporter http -role client -listen 127.0.0.1:8080 -upstream https://mcp.exam
 
 The `Authorization` header and other headers are forwarded but never recorded. In HTTP client mode, the agent sees the proxy's URL.
 Servers that enforce the OAuth resource indicator / token audience (RFC 8707, required by the MCP authorization spec)
-will reject tokens minted for that URL. For those, use the `mcp-remote` form above.
+will reject tokens minted for that URL. For those, use the `mcp-remote` form above. The wiki's Client Mode page explains why the
+proxy can't fix this, and gives a workaround for agents built on the TypeScript SDK.
 
 ## Demo
 
