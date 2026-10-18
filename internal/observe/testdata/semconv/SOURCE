@@ -1,0 +1,4 @@
+# Pinned semantic-conventions sources (read by sync.sh). Bump deliberately:
+# run sync.sh, then go test ./internal/observe -run Semconv.
+GENAI_PIN=547934afa90a34298441caf80c43b27255c3a292   # open-telemetry/semantic-conventions-genai (no releases yet), 2026-10-18
+CORE_PIN=v1.44.0                                     # open-telemetry/semantic-conventions

@@ -3,6 +3,13 @@
 Names follow the [OTel MCP semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/mcp.md)
 (status: Development). Names marked † are this project's, for things the conventions don't cover yet.
 
+How this stays true:
+- **CI** checks every emitted name against a pinned copy of the conventions registry.
+- **A weekly job** compares against upstream and opens an issue if a name drifts.
+- **If upstream renames something,** both names are emitted for at least one minor release, with a migration note.
+
+The † names are drafted as upstream proposals in [docs/semconv-proposal.md](https://github.com/firasmosbehi/mcp-exporter/blob/main/docs/semconv-proposal.md).
+
 ## Spans
 
 One span per JSON-RPC **request**, from the request until its response, cancellation or timeout.
