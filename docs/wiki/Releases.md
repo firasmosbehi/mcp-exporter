@@ -15,7 +15,7 @@
 Everything is signed with keyless cosign by the release workflow:
 
 ```sh
-V=0.3.1
+V=0.4.0
 ID="https://github.com/firasmosbehi/mcp-exporter/.github/workflows/release.yml@refs/tags/v$V"
 ISSUER=https://token.actions.githubusercontent.com
 cosign verify ghcr.io/firasmosbehi/mcp-exporter:$V --certificate-identity "$ID" --certificate-oidc-issuer $ISSUER
