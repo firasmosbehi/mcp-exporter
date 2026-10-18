@@ -38,10 +38,12 @@ The proxy **observes and doesn't rewrite**, with these documented exceptions:
 
 ## stdio specifics
 
-In stdio mode, **stdout is the protocol channel**. On Linux and macOS the exporter duplicates the real stdout for protocol frames, then
-points file descriptor 1 at stderr (`dup2`). Anything else that writes to stdout, such as console exporters or a stray print in a library,
-lands on stderr instead of corrupting the JSON-RPC stream. Windows has no equivalent, so stdio mode there refuses
-`OTEL_*_EXPORTER=console`. The server's stderr is passed through and also exported as log records.
+In stdio mode, **stdout is the protocol channel**. Two layers keep it clean:
+- **All platforms:** console exporters (`OTEL_*_EXPORTER=console`) are built with an explicit stderr writer.
+- **Linux and macOS:** the exporter also duplicates the real stdout for protocol frames, then points file descriptor 1 at stderr (`dup2`),
+  so even a stray print from a library lands on stderr. Windows has no equivalent for already-open files.
+
+The server's stderr is passed through and also exported as log records.
 
 ## Code map
 

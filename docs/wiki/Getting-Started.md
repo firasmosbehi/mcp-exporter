@@ -45,7 +45,7 @@ claude mcp add github -e OTEL_SERVICE_NAME=github-mcp -- mcp-exporter stdio -- n
 **Cursor** (`.cursor/mcp.json`) takes the same `command` / `args` / `env` shape as Claude Desktop.
 
 No backend yet? Run the [[Demo]] stack and use `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`.
-To look at raw telemetry, set `OTEL_TRACES_EXPORTER=console` (it goes to stderr; stdout stays the protocol channel, Linux and macOS only).
+To look at raw telemetry, set `OTEL_TRACES_EXPORTER=console` (it goes to stderr, so stdout stays the protocol channel).
 
 ## A server you run over HTTP
 

@@ -13,6 +13,9 @@ import (
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
+	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
@@ -48,15 +51,15 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 		return nil, err
 	}
 
-	spanExp, err := autoexport.NewSpanExporter(ctx)
+	spanExp, err := spanExporter(ctx)
 	if err != nil {
 		return nil, err
 	}
-	metricReader, err := autoexport.NewMetricReader(ctx)
+	metricReader, err := metricReader(ctx)
 	if err != nil {
 		return nil, err
 	}
-	logExp, err := autoexport.NewLogExporter(ctx)
+	logExp, err := logExporter(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -116,4 +119,36 @@ func errSignal(err error) string {
 		return "logs"
 	}
 	return "other"
+}
+
+// Console exporters are built here, writing to stderr, rather than by
+// autoexport, which writes to stdout: in stdio mode stdout is the protocol
+// channel, and only Unix can swap the descriptor out from under them.
+func console(signal string) bool {
+	return strings.TrimSpace(os.Getenv("OTEL_"+signal+"_EXPORTER")) == "console"
+}
+
+func spanExporter(ctx context.Context) (sdktrace.SpanExporter, error) {
+	if console("TRACES") {
+		return stdouttrace.New(stdouttrace.WithWriter(os.Stderr))
+	}
+	return autoexport.NewSpanExporter(ctx)
+}
+
+func metricReader(ctx context.Context) (sdkmetric.Reader, error) {
+	if console("METRICS") {
+		exp, err := stdoutmetric.New(stdoutmetric.WithWriter(os.Stderr))
+		if err != nil {
+			return nil, err
+		}
+		return sdkmetric.NewPeriodicReader(exp), nil // honours OTEL_METRIC_EXPORT_INTERVAL
+	}
+	return autoexport.NewMetricReader(ctx)
+}
+
+func logExporter(ctx context.Context) (sdklog.Exporter, error) {
+	if console("LOGS") {
+		return stdoutlog.New(stdoutlog.WithWriter(os.Stderr))
+	}
+	return autoexport.NewLogExporter(ctx)
 }

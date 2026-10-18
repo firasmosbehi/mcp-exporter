@@ -1,5 +1,3 @@
-//go:build unix
-
 package main
 
 import (
@@ -7,8 +5,8 @@ import (
 	"testing"
 )
 
-// Console exporters write to stdout; in stdio mode that is the protocol
-// channel, so the binary must keep it free of anything but server frames.
+// In stdio mode stdout is the protocol channel: with every console exporter
+// on, it must carry nothing but server frames, on every platform (#51).
 func TestStdioStdoutCarriesOnlyProtocol(t *testing.T) {
 	stdout, stderr, err := runStdio(t, buildBinary(t),
 		"OTEL_TRACES_EXPORTER=console", "OTEL_METRICS_EXPORTER=console", "OTEL_LOGS_EXPORTER=console")

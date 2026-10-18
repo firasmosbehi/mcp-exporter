@@ -24,7 +24,7 @@ jobs:
       - uses: azure/setup-helm@v5
       - run: helm lint deploy/helm/mcp-exporter
   windows:
-    # stdio mode refuses console exporters here (no fd-level stdout swap); keep that tested.
+    # No fd-level stdout swap here: the stderr console exporters alone must keep stdio clean.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
