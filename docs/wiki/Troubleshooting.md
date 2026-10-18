@@ -18,6 +18,11 @@
   and counts it in `mcp_exporter.parse.errors`.
 - **Old versions:** on v0.3.0 and earlier, a request with `"_meta": null` crashed the exporter. Upgrade to v0.3.1 or later.
 - **Server needs its own env vars:** in a desktop client config, put them in the same `env` block as the `OTEL_*` variables.
+- **`OTEL_*` ignored when an SDK agent launches the exporter:** both official SDKs' stdio clients start the server with only a
+  small allowlist of variables (`HOME`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, `USER` on Unix), unless you pass `env`. The exporter then falls
+  back to `localhost:4318` and logs `connection refused`. Pass the variables explicitly. In Python:
+  `StdioServerParameters(command="mcp-exporter", args=[...], env={**get_default_environment(), "OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4318"})`.
+  In TypeScript: `new StdioClientTransport({command, args, env: {...getDefaultEnvironment(), OTEL_EXPORTER_OTLP_ENDPOINT: "…"}})`.
 
 ## HTTP mode
 
