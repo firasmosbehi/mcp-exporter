@@ -5,6 +5,8 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-18
+
 ### Fixed
 - **Legacy HTTP+SSE servers** (protocol 2024-11-05: `GET /sse` + `POST /message?sessionId=`) are now observed correctly.
   - Responses arrive on the GET stream, so they never matched their POSTs. Every request ended as a false `timeout` error after `-session-idle`, and no session was tracked.
@@ -107,7 +109,8 @@ All notable changes are documented here. The format follows
 - Signed release binaries, multi-arch distroless image, SBOMs, and the Helm chart as a signed OCI artifact.
 - `mcp-exporter version`, with the version also reported as the `telemetry.distro.version` resource attribute.
 
-[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.3.1...v0.4.0
