@@ -5,6 +5,10 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `deploy/compose/backends.yaml` runs the demo (MCP server, exporter, instrumented agent) against Grafana Cloud, Honeycomb,
+  Datadog or SigNoz. Choose one with `BACKEND=<name>`; each backend has an env template in `deploy/compose/backends/` (#14).
+
 ### Fixed
 - Wiki sync now compares files by content. Same-size edits, such as every version bump, could be skipped as unchanged, which left the wiki's Releases page at 0.6.1.
 

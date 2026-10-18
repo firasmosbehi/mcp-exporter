@@ -1,0 +1,40 @@
+# The demo, exporting to a hosted backend instead of the local Grafana stack:
+# an MCP server, mcp-exporter in front of it, and the OTel-instrumented demo
+# agent, so traces show agent steps with their MCP calls nested inside.
+#
+#   cp backends/honeycomb.env.example backends/honeycomb.env    # then fill in the key
+#   BACKEND=honeycomb docker compose -f deploy/compose/backends.yaml up --build
+#   BACKEND=honeycomb docker compose -f deploy/compose/backends.yaml down
+#
+# BACKEND is the name of an env file in backends/: grafana-cloud, honeycomb,
+# datadog or signoz. Filled-in files (*.env) are git-ignored. More traffic
+# (failures, prompts, resources, tasks): add -f deploy/compose/demo.yaml.
+name: mcp-${BACKEND:?set BACKEND to grafana-cloud, honeycomb, datadog or signoz}
+
+services:
+  mcp-server:
+    image: node:26-alpine
+    command: ["npx", "-y", "@modelcontextprotocol/server-everything", "streamableHttp"]
+    environment:
+      PORT: "3001"
+
+  mcp-exporter:
+    build: ../..
+    command: ["http", "-listen", ":8080", "-upstream", "http://mcp-server:3001"]
+    ports: ["8080:8080"] # point your own MCP client here too
+    env_file:
+      - "backends/${BACKEND}.env"
+    environment:
+      OTEL_SERVICE_NAME: everything
+    depends_on: [mcp-server]
+
+  traced-agent:
+    build: {context: ../.., dockerfile: deploy/compose/demo-agent.Dockerfile}
+    command: ["-url", "http://mcp-exporter:8080/mcp"]
+    env_file:
+      - "backends/${BACKEND}.env"
+    environment:
+      OTEL_SERVICE_NAME: demo-agent
+      OTEL_METRICS_EXPORTER: none # the agent's spans are what matter; metrics come from the exporter
+    depends_on: [mcp-exporter]
+    restart: unless-stopped
