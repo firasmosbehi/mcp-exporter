@@ -12,7 +12,8 @@ jobs:
     permissions:
       contents: write   # GitHub release
       packages: write   # ghcr.io image and chart
-      id-token: write   # keyless cosign signing
+      id-token: write   # keyless cosign signing, attestations
+      attestations: write # SLSA build provenance
     steps:
       - uses: actions/checkout@v7
         with: {fetch-depth: 0}
@@ -41,7 +42,24 @@ jobs:
         with: {args: "release --clean --release-notes ${{ runner.temp }}/notes.md"}
         env: {GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"}
 
+      - name: Provenance for the release archives
+        uses: actions/attest-build-provenance@v4
+        with: {subject-checksums: dist/checksums.txt}
+
+      - name: Image digest
+        id: image
+        run: |
+          ref="ghcr.io/${{ github.repository_owner }}/mcp-exporter:${GITHUB_REF_NAME#v}"
+          echo "digest=$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest.Digest}}' | tr -d '"')" >> "$GITHUB_OUTPUT"
+      - name: Provenance for the image
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/mcp-exporter
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+
       - name: Push and sign Helm chart
+        id: chart
         run: |
           v="${GITHUB_REF_NAME#v}"
           helm package deploy/helm/mcp-exporter --version "$v" --app-version "$v" -d "$RUNNER_TEMP"
@@ -49,3 +67,10 @@ jobs:
           helm push "$RUNNER_TEMP/mcp-exporter-$v.tgz" oci://ghcr.io/${{ github.repository_owner }}/charts 2>&1 | tee "$RUNNER_TEMP/push.log"
           digest=$(grep -o 'sha256:[0-9a-f]\{64\}' "$RUNNER_TEMP/push.log" | head -1)
           cosign sign --yes "ghcr.io/${{ github.repository_owner }}/charts/mcp-exporter@$digest"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Provenance for the chart
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/charts/mcp-exporter
+          subject-digest: ${{ steps.chart.outputs.digest }}
+          push-to-registry: true

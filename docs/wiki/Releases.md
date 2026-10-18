@@ -24,3 +24,14 @@ cosign verify-blob checksums.txt --signature checksums.txt.sig --certificate che
   --certificate-identity "$ID" --certificate-oidc-issuer $ISSUER
 sha256sum -c checksums.txt --ignore-missing
 ```
+
+## Build provenance (SLSA)
+
+Every archive, the image and the chart carry a GitHub artifact attestation recording the workflow, commit and runner that
+built them. The image and chart attestations are also pushed to the registry next to the artifacts.
+
+```sh
+gh attestation verify mcp-exporter_${V}_linux_amd64.tar.gz -R firasmosbehi/mcp-exporter
+gh attestation verify oci://ghcr.io/firasmosbehi/mcp-exporter:$V -R firasmosbehi/mcp-exporter
+gh attestation verify oci://ghcr.io/firasmosbehi/charts/mcp-exporter:$V -R firasmosbehi/mcp-exporter
+```

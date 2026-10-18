@@ -54,6 +54,14 @@ cosign verify-blob checksums.txt --signature checksums.txt.sig --certificate che
   --certificate-identity "$ID" --certificate-oidc-issuer $ISSUER
 ```
 
+Releases also carry **SLSA build provenance** (GitHub artifact attestations) for every archive, the image and the chart:
+
+```sh
+gh attestation verify mcp-exporter_<version>_linux_amd64.tar.gz -R firasmosbehi/mcp-exporter
+gh attestation verify oci://ghcr.io/firasmosbehi/mcp-exporter:<version> -R firasmosbehi/mcp-exporter
+gh attestation verify oci://ghcr.io/firasmosbehi/charts/mcp-exporter:<version> -R firasmosbehi/mcp-exporter
+```
+
 ## Quick start
 
 **Laptop (Claude Desktop, Cursor, Claude Code):** prefix the server command.
