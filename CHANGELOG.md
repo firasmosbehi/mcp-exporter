@@ -6,6 +6,10 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Semantic-conventions conformance (#52):
+  - `TestEmittedNamesAreInSemconv` checks every emitted span attribute, metric and metric attribute against a pinned registry (GenAI conventions at a commit, core conventions at v1.44.0), with an explicit list of project-defined names.
+  - A weekly `semconv-watch` workflow checks against upstream and opens an issue on drift.
+  - The policy for upstream renames is in CONTRIBUTING.md, and the draft upstream proposals are in `docs/semconv-proposal.md`.
 - `deploy/compose/check-profiles-versions.sh`, run in CI: fails with the exact versions to set when the profiler images drift from the Collector bundled in `grafana/otel-lgtm`. Dependabot now covers the reference stack (#53).
 
 ### Fixed

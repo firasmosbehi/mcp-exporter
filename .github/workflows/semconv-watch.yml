@@ -1,0 +1,44 @@
+name: semconv-watch
+# The MCP semantic conventions are still Development. Weekly, check what we
+# emit against upstream: open an issue on drift, note in the summary when only
+# the pin is stale.
+on:
+  schedule: [{cron: "0 6 * * 1"}] # Mondays 06:00 UTC
+  workflow_dispatch:
+permissions: {contents: read, issues: write}
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: {go-version-file: go.mod}
+      - name: Fetch upstream registries
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          core=$(gh api repos/open-telemetry/semantic-conventions/releases/latest --jq .tag_name)
+          GENAI_REF=main CORE_REF="$core" internal/observe/testdata/semconv/sync.sh "$RUNNER_TEMP/upstream"
+          echo "CORE_LATEST=$core" >> "$GITHUB_ENV"
+      - name: Check emitted names against upstream
+        id: check
+        run: |
+          set +e
+          SEMCONV_DIR="$RUNNER_TEMP/upstream" go test ./internal/observe -run TestEmittedNamesAreInSemconv -count 1 -v > "$RUNNER_TEMP/out.txt" 2>&1
+          echo "failed=$([ $? -ne 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/out.txt"
+      - name: Report
+        env: {GH_TOKEN: "${{ github.token }}", REPO: "${{ github.repository }}"}
+        run: |
+          pinned=internal/observe/testdata/semconv
+          if diff -rq --exclude=SOURCE --exclude=sync.sh "$pinned" "$RUNNER_TEMP/upstream" >/dev/null; then
+            echo "Pinned registry matches upstream (genai main, core $CORE_LATEST)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Upstream registry changed since the pin. Bump it: edit $pinned/SOURCE, run sync.sh, run the test." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          [ "${{ steps.check.outputs.failed }}" = true ] || exit 0
+          title="Semantic conventions drift: emitted names no longer match upstream"
+          body=$(printf 'The weekly semconv-watch run found names we emit that no longer match upstream (genai \`main\`, core \`%s\`).\n\n```\n%s\n```\n\nRun: %s\n\nSee CONTRIBUTING.md, "Semantic convention changes".' \
+            "$CORE_LATEST" "$(grep -E 'semantic conventions|now exist|^\s{2,}[a-z_]+\.' "$RUNNER_TEMP/out.txt" | head -40)" \
+            "${{ github.server_url }}/$REPO/actions/runs/${{ github.run_id }}")
+          existing=$(gh issue list -R "$REPO" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then gh issue comment "$existing" -R "$REPO" --body "$body"; else gh issue create -R "$REPO" --title "$title" --body "$body"; fi

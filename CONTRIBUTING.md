@@ -31,6 +31,21 @@ Layout:
 | `cmd/mcp-exporter` | CLI |
 | `deploy/` | compose stack, Helm chart, Grafana dashboard, alerts |
 
+## Semantic convention changes
+
+The MCP conventions are still **Development**. `TestEmittedNamesAreInSemconv` checks every span attribute, metric and
+metric attribute we emit against a pinned copy of the registry in `internal/observe/testdata/semconv`
+(GenAI conventions at a commit, core conventions at a release). The weekly `semconv-watch` workflow runs the same
+test against upstream and opens an issue on drift.
+
+- **Adding a name:** use the semconv name. If none exists, add it to `projectDefined`, mark it † in the wiki's Telemetry Reference, and
+  consider adding it to [docs/semconv-proposal.md](docs/semconv-proposal.md).
+- **Upstream renames a name we emit:** for at least one minor release, emit both names. Gate it with
+  `OTEL_SEMCONV_STABILITY_OPT_IN=mcp` (new only) / `mcp/dup` (both); the default is old plus new. Then switch the default, and
+  add a CHANGELOG migration note with PromQL/TraceQL before-and-after examples.
+- **Upstream adopts a project-defined name:** the test says so. Check the definition matches, then remove it from `projectDefined` and the †.
+- **Bumping the pin:** edit `internal/observe/testdata/semconv/SOURCE`, run `sync.sh`, then `go test ./internal/observe -run Semconv`.
+
 ## Pull requests
 
 - Keep PRs focused, and add a test that fails without your change.
