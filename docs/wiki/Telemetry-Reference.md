@@ -22,7 +22,7 @@ One span per JSON-RPC **request**, from the request until its response, cancella
 | `jsonrpc.request.id` | always (string form) |
 | `network.transport` | `pipe` (stdio) or `tcp` (http) |
 | `mcp.session.id` | in a session; **truncated SHA-256**, never the raw id |
-| `mcp.protocol.version`, `mcp.server.name` †, `mcp.client.name` † | after `initialize` |
+| `mcp.protocol.version`, `mcp.server.name` †, `mcp.client.name` † | up to 2025-11-25: from the session's `initialize`. From 2026-07-28 (no `initialize`): the version and client from each request's `_meta` (`io.modelcontextprotocol/protocolVersion`, `/clientInfo`), and the server name from each result's `_meta` (`/serverInfo`) |
 | `gen_ai.tool.name`, `gen_ai.operation.name=execute_tool` | `tools/call` |
 | `gen_ai.prompt.name` | `prompts/get` |
 | `mcp.resource.uri` | `resources/read`, `/subscribe`, `/unsubscribe` |
@@ -41,17 +41,25 @@ One span per JSON-RPC **request**, from the request until its response, cancella
 |---|---|
 | a JSON-RPC code, e.g. `-32603` | error response; span status ERROR with the error message |
 | `tool_error` | `tools/call` result with `isError: true` |
-| `cancelled` | `notifications/cancelled` for the request |
+| `cancelled` | `notifications/cancelled` for the request, or (http, no session) its response stream closed before the response |
+| an HTTP status, e.g. `500` | (http, no session) the upstream answered with an HTTP error and no JSON-RPC response; `502` when it was unreachable |
 | `timeout` | no response within `-session-idle` |
 | `duplicate_id` | the id was reused before a response arrived |
 
 On `SERVER` spans, the caller-mistake codes **-32700, -32600, -32601, -32602, -32002** set `rpc.response.status_code`
 but are *not* errors (no `error.type`, status unset), per the conventions. On `CLIENT` spans every code is an error.
 
-### MCP Tasks (2025-11-25)
+### Subscriptions (2026-07-28)
 
-- **Creation:** a task-augmented request (`params.task`) whose response is a `CreateTaskResult` gets `mcp.task.id` and `mcp.task.status`.
-- **Follow-ups:** `tasks/get`, `tasks/result`, `tasks/cancel`, and any message with `_meta["io.modelcontextprotocol/related-task"]`
+A `subscriptions/listen` span lasts as long as the subscription. It ends when the client closes the stream (http) or cancels it
+(stdio), when the server ends it, or at shutdown. None of these is an error, and the idle sweep never ends it. Subscriptions
+are not counted in `requests.inflight`.
+
+### MCP Tasks (2025-11-25, and the 2026-07-28 Tasks extension)
+
+- **Creation:** a response that is a `CreateTaskResult` gets `mcp.task.id` and `mcp.task.status`. Up to 2025-11-25 this needs a
+  task-augmented request (`params.task`). The extension's flat `resultType: "task"` result counts with or without one.
+- **Follow-ups:** `tasks/get`, `tasks/result`, `tasks/cancel`, `tasks/update`, and any message with `_meta["io.modelcontextprotocol/related-task"]`
   get `mcp.task.id` and a **span link to the creating span**. Polled statuses are recorded as `mcp.task.status`.
 
 ## Metrics

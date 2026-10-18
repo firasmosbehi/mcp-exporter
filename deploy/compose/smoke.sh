@@ -9,7 +9,7 @@ set -eu
 cd "$(dirname "$0")"
 P=mcp-smoke
 N=20
-files="-f docker-compose.yaml -f gateway.yaml -f agent.yaml"
+files="-f docker-compose.yaml -f gateway.yaml -f agent.yaml -f stateless.yaml"
 export AGENT_TASKS=false # its calls must not change the exact task counts below
 [ "${PROFILES:-}" = 1 ] && files="$files -f profiling.yaml"
 compose() { docker compose -p "$P" $files "$@"; }
@@ -112,6 +112,23 @@ echo "gateway ok"
 retry sh -c "curl -s -G 'http://lgtm:3200/api/search?limit=5' --data-urlencode 'q={resource.service.name=\"demo-agent\" && span.gen_ai.operation.name=\"invoke_agent\"} >> {resource.service.name=\"everything\" && span.mcp.method.name=\"tools/call\"}' | grep -q '\"rootServiceName\":\"demo-agent\"'" \
   || fail "no trace with an MCP span nested under a demo-agent step"
 echo "agent ok"
+
+# Protocol 2026-07-28 (stateless): version and names come from each message's
+# _meta, and a subscription closed by the client ends without an error.
+SU=http://mcp-exporter-2026:8080/mcp
+SM='"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"smoke","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}'
+retry sh -c "curl -sf http://mcp-exporter-2026:8080/readyz -o /dev/null" || fail "2026 exporter not ready"
+retry sh -c "curl -sf -H Content-Type:application/json -H Accept:application/json,text/event-stream -H MCP-Protocol-Version:2026-07-28 -H 'Mcp-Method: tools/call' -H 'Mcp-Name: add' $SU -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"a\":2,\"b\":3},$SM}}' | grep -q '\"text\":\"5\"'" \
+  || fail "2026-07-28 tools/call through the exporter"
+curl -s -m 2 -H Content-Type:application/json -H Accept:application/json,text/event-stream -H MCP-Protocol-Version:2026-07-28 -H 'Mcp-Method: subscriptions/listen' $SU \
+  -d '{"jsonrpc":"2.0","id":2,"method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true},'"$SM"'}}' | grep -q subscriptions/acknowledged \
+  || fail "2026-07-28 subscriptions/listen through the exporter"
+tq() { curl -s -G 'http://lgtm:3200/api/search?limit=5' --data-urlencode "q=$1" | grep -q '"traceID"'; }
+retry tq '{resource.service.name="stateless" && span.gen_ai.tool.name="add" && span.mcp.protocol.version="2026-07-28" && span.mcp.server.name="stateless-demo" && span.mcp.client.name="smoke"}' \
+  || fail "2026-07-28 tools/call span lacks the per-message protocol version or names"
+retry tq '{resource.service.name="stateless" && span.mcp.method.name="subscriptions/listen" && status != error}' \
+  || fail "no error-free subscriptions/listen span"
+echo "stateless 2026-07-28 ok"
 IN
 
 [ "${PROFILES:-}" = 1 ] && docker run --rm -i --network "${P}_default" curlimages/curl:8.11.1 sh <<'IN'

@@ -447,3 +447,79 @@ func TestLegacySSE(t *testing.T) {
 		t.Errorf("second span = %q", got[1].Name)
 	}
 }
+
+// Without a session (always so from 2026-07-28), a request can only be
+// answered on its own response. When that ends without an answer, the span
+// ends right away, instead of as a "timeout" after -session-idle.
+func TestSessionlessExchangeEnds(t *testing.T) {
+	spans := tracetest.NewInMemoryExporter()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSyncer(spans)))
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		switch {
+		case strings.Contains(string(b), `"dropped"`): // stream closes before the response
+			w.Header().Set("Content-Type", "text/event-stream")
+			io.WriteString(w, "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{}}\n\n")
+		case strings.Contains(string(b), `"crash"`):
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		case strings.Contains(string(b), "subscriptions/listen"):
+			w.Header().Set("Content-Type", "text/event-stream")
+			io.WriteString(w, "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/subscriptions/acknowledged\",\"params\":{}}\n\n")
+			w.(http.Flusher).Flush()
+			<-r.Context().Done() // open until the client goes away
+		}
+	}))
+	defer upstream.Close()
+	up, _ := url.Parse(upstream.URL)
+	tr := observe.NewTracker(observe.Options{Transport: "tcp"})
+	proxy := httptest.NewServer(HTTP(tr, up))
+	defer proxy.Close()
+
+	post := func(target, body string) {
+		resp, err := http.Post(target, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	post(proxy.URL+"/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"dropped"}}`)
+	post(proxy.URL+"/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"crash"}}`)
+	// The client reads the acknowledgement, then closes the subscription.
+	resp, err := http.Post(proxy.URL+"/mcp", "application/json", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"subscriptions/listen","params":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bufio.NewReader(resp.Body).ReadString('\n')
+	resp.Body.Close()
+
+	dead := httptest.NewServer(http.NotFoundHandler())
+	deadURL, _ := url.Parse(dead.URL)
+	dead.Close()
+	down := httptest.NewServer(HTTP(observe.NewTracker(observe.Options{Transport: "tcp"}), deadURL))
+	defer down.Close()
+	post(down.URL+"/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"unreachable"}}`)
+
+	want := map[string]string{
+		"tools/call dropped": "cancelled", "tools/call crash": "500",
+		"subscriptions/listen": "", "tools/call unreachable": "502",
+	}
+	deadline := time.Now().Add(2 * time.Second) // the listen span ends once the proxy sees the close
+	for len(spans.GetSpans()) < len(want) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	got := map[string]string{}
+	for _, s := range spans.GetSpans() {
+		got[s.Name] = ""
+		for _, kv := range s.Attributes {
+			if kv.Key == "error.type" {
+				got[s.Name] = kv.Value.AsString()
+			}
+		}
+	}
+	for name, errType := range want {
+		if e, ok := got[name]; !ok || e != errType {
+			t.Errorf("%s: ended=%v error.type=%q, want %q", name, ok, e, errType)
+		}
+	}
+}
