@@ -4,6 +4,10 @@ package jsonrpc
 import (
 	"bytes"
 	"encoding/json"
+	"math"
+	"math/big"
+	"strconv"
+	"strings"
 )
 
 type Error struct {
@@ -165,4 +169,72 @@ func (m *Message) SetMeta(kv map[string]string) {
 	}
 	params["_meta"], _ = marshal(meta)
 	m.Params, _ = marshal(params)
+}
+
+// IDKey returns a canonical form of a JSON-RPC id for matching responses to
+// requests. Ids that are the same value written differently match (1, 1.0
+// and 1e0; "a" and "\u0061"), while the string "1" and the number 1 stay
+// distinct, as JSON-RPC requires. The key is internal: forwarded bytes are
+// never changed.
+func IDKey(id json.RawMessage) string {
+	b := bytes.TrimSpace(id)
+	if len(b) == 0 {
+		return ""
+	}
+	switch c := b[0]; {
+	case c == '"':
+		// Decode only when there are escapes: raw bytes are exact (decoding
+		// would map every invalid UTF-8 byte to U+FFFD and merge distinct ids).
+		if len(b) >= 2 && b[len(b)-1] == '"' && bytes.IndexByte(b[1:len(b)-1], '\\') < 0 {
+			return "s:" + string(b[1:len(b)-1])
+		}
+		var s string
+		if json.Unmarshal(b, &s) == nil {
+			return "s:" + s
+		}
+	case c == '-' || (c >= '0' && c <= '9'):
+		if n, ok := numberKey(string(b)); ok {
+			return "n:" + n
+		}
+	}
+	var out bytes.Buffer // anything else (null, objects, arrays) by its compacted text
+	if json.Compact(&out, b) == nil {
+		return "r:" + out.String()
+	}
+	return "r:" + string(b)
+}
+
+// numberKey canonicalises a JSON number. Integer literals stay exact at any
+// size (math/big); others go through float64, and if integral within 2^53 they
+// are written as integers so 1.0 and 1e0 match 1. Exponents are never expanded
+// exactly: "1e999999999" must not allocate a billion digits.
+func numberKey(s string) (string, bool) {
+	if !strings.ContainsAny(s, ".eE") {
+		if i, err := strconv.ParseInt(s, 10, 64); err == nil { // common case, no big.Int
+			return strconv.FormatInt(i, 10), true
+		}
+		var n big.Int
+		if _, ok := n.SetString(s, 10); ok {
+			return n.String(), true
+		}
+		return "", false
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return "", false
+	}
+	if f == math.Trunc(f) && math.Abs(f) <= 1<<53 {
+		return strconv.FormatFloat(f, 'f', -1, 64), true
+	}
+	return strconv.FormatFloat(f, 'g', -1, 64), true
+}
+
+// IDString is the id as it should appear in telemetry: the string's value or
+// the number's canonical text.
+func IDString(id json.RawMessage) string {
+	k := IDKey(id)
+	if len(k) > 2 {
+		return k[2:]
+	}
+	return k
 }

@@ -63,3 +63,22 @@ func FuzzParse(f *testing.F) {
 		}
 	})
 }
+
+// IDKey sees untrusted ids: it must not panic, must ignore insignificant
+// whitespace, and must stay cheap for huge exponents.
+func FuzzIDKey(f *testing.F) {
+	for _, s := range []string{`1`, `1.0`, `-0`, `1e999999999`, `"a"`, `"a"`, `{"": 0}`, `[1, 2]`, `null`, `123456789012345678901234567890`} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, id []byte) {
+		k := IDKey(id)
+		// Linear bound: decoding escapes with invalid UTF-8 can at most triple
+		// the size (U+FFFD is 3 bytes); numbers and raw text never grow much.
+		if len(k) > 3*len(id)+64 {
+			t.Fatalf("key for %q is %d bytes: canonicalisation must stay linear", id, len(k))
+		}
+		if json.Valid(id) && IDKey([]byte(compact(id))) != k {
+			t.Fatalf("whitespace changed the key of %q", id)
+		}
+	})
+}

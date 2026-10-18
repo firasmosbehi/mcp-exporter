@@ -177,7 +177,7 @@ func (t *Tracker) Frame(ctx context.Context, dir Dir, scope, session string, raw
 		case m.IsRequest():
 			changed = t.startRequest(ctx, dir, scope, session, m) || changed
 		case m.IsResponse():
-			t.endRequest(pendingKey{scope, dir.other(), string(m.ID)}, session, m, "")
+			t.endRequest(pendingKey{scope, dir.other(), jsonrpc.IDKey(m.ID)}, session, m, "")
 		case m.IsNotification():
 			t.notification(ctx, dir, scope, m)
 		}
@@ -211,7 +211,7 @@ func (t *Tracker) startRequest(ctx context.Context, dir Dir, scope, sess string,
 
 	spanAttrs := []attribute.KeyValue{
 		attribute.String("mcp.method.name", m.Method),
-		attribute.String("jsonrpc.request.id", idString(m.ID)),
+		attribute.String("jsonrpc.request.id", jsonrpc.IDString(m.ID)),
 		attribute.String("network.transport", t.opts.Transport),
 	}
 	metricAttrs := []attribute.KeyValue{
@@ -279,7 +279,7 @@ func (t *Tracker) startRequest(ctx context.Context, dir Dir, scope, sess string,
 	if p.ClientInfo != nil {
 		pd.clientName = p.ClientInfo.Name
 	}
-	key := pendingKey{scope, dir, string(m.ID)}
+	key := pendingKey{scope, dir, jsonrpc.IDKey(m.ID)}
 	t.mu.Lock()
 	old := t.pending[key]
 	t.pending[key] = pd
@@ -389,7 +389,7 @@ func (t *Tracker) notification(ctx context.Context, dir Dir, scope string, m *js
 	switch m.Method {
 	case "notifications/cancelled":
 		// Sent by whoever issued the request, so the request travelled the same way.
-		t.endRequest(pendingKey{scope, dir, string(p.RequestID)}, "", nil, "cancelled")
+		t.endRequest(pendingKey{scope, dir, jsonrpc.IDKey(p.RequestID)}, "", nil, "cancelled")
 	case "notifications/tasks/status":
 		t.taskStatus(p.TaskID, p.Status)
 	case "notifications/message":
@@ -560,14 +560,6 @@ func mcpLevel(l string) slog.Level {
 	default: // error, critical, alert, emergency
 		return slog.LevelError
 	}
-}
-
-func idString(id json.RawMessage) string {
-	var s string
-	if json.Unmarshal(id, &s) == nil {
-		return s
-	}
-	return string(id)
 }
 
 // hashID keeps session ids correlatable without exporting a usable value.

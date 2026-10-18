@@ -5,6 +5,9 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Responses are matched to requests by id **value**, not raw bytes. A request with id `1.0` (or `1e0`) answered with `1` used to stay open until the `-session-idle` timeout. The string `"1"` and the number `1` remain distinct, and `jsonrpc.request.id` reports the canonical form (#50).
+
 ## [0.4.0]
 
 ### Added
