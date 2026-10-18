@@ -321,3 +321,25 @@ func TestClientRole(t *testing.T) {
 		}
 	}
 }
+
+// Issue #50: a server that re-serialises 1.0 as 1 must still close the span.
+func TestIDCanonicalCorrelation(t *testing.T) {
+	tr, spans, _ := setup(t)
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":1.0,"method":"tools/call","params":{"name":"x"}}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":1,"result":{"content":[]}}`)
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":"7","method":"ping"}`)
+	send(tr, ServerToClient, `{"jsonrpc":"2.0","id":7,"result":{}}`) // number 7 is not string "7"
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","id":2e0,"method":"tools/call","params":{"name":"slow"}}`)
+	send(tr, ClientToServer, `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2}}`)
+
+	got := spans.GetSpans()
+	if len(got) != 2 {
+		t.Fatalf("want 2 ended spans (1.0/1 matched, 2e0 cancelled via 2; \"7\" still open), got %d", len(got))
+	}
+	if a := attrs(got[0]); got[0].Name != "tools/call x" || a["jsonrpc.request.id"] != "1" || a["error.type"] != "" {
+		t.Errorf("1.0 vs 1: name=%q attrs=%v", got[0].Name, a)
+	}
+	if a := attrs(got[1]); a["error.type"] != "cancelled" {
+		t.Errorf("cancel with requestId 2 should end the 2e0 request: %v", a)
+	}
+}

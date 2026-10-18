@@ -17,7 +17,7 @@ jobs:
       - run: go test -race ./...
       - name: Fuzz (short; crashers land in testdata/fuzz as regression seeds)
         run: |
-          for t in jsonrpc:FuzzParse proxy:FuzzSSEObserver proxy:FuzzGunzip observe:FuzzFrame; do
+          for t in jsonrpc:FuzzParse jsonrpc:FuzzIDKey proxy:FuzzSSEObserver proxy:FuzzGunzip observe:FuzzFrame; do
             go test ./internal/${t%%:*} -run '^$' -fuzz "^${t#*:}\$" -fuzztime 20s
           done
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

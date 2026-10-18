@@ -86,3 +86,38 @@ func TestSetMetaNoHTMLEscape(t *testing.T) {
 		}
 	}
 }
+
+// Issue #50: ids that are the same value written differently must match;
+// a string and a number never do.
+func TestIDKey(t *testing.T) {
+	same := [][]string{
+		{`1`, `1.0`, `1e0`, `10e-1`, ` 1 `},
+		{`-3`, `-3.0`, `-0.3e1`},
+		{`0`, `-0`, `0.0`},
+		{`"a"`, `"a"`},
+		{`123456789012345678901234567890`, `123456789012345678901234567890`},
+		{`1.5`, `15e-1`},
+	}
+	for _, group := range same {
+		for _, id := range group[1:] {
+			if IDKey([]byte(id)) != IDKey([]byte(group[0])) {
+				t.Errorf("IDKey(%s)=%q, want same as IDKey(%s)=%q", id, IDKey([]byte(id)), group[0], IDKey([]byte(group[0])))
+			}
+		}
+	}
+	distinct := []string{`1`, `"1"`, `2`, `1.5`, `123456789012345678901234567890`, `123456789012345678901234567891`, `null`, `{"a":1}`}
+	seen := map[string]string{}
+	for _, id := range distinct {
+		k := IDKey([]byte(id))
+		if prev, dup := seen[k]; dup {
+			t.Errorf("%s and %s collide on key %q", prev, id, k)
+		}
+		seen[k] = id
+	}
+	if got := IDString([]byte(`1.0`)); got != "1" {
+		t.Errorf("IDString(1.0) = %q, want 1", got)
+	}
+	if got := IDString([]byte(`"abc"`)); got != "abc" {
+		t.Errorf("IDString(\"abc\") = %q", got)
+	}
+}
