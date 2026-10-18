@@ -23,7 +23,7 @@ Use `-capture-tools search,lookup` to capture only the tools you've reviewed.
 - **TLS:** `-tls-cert`/`-tls-key` on the listener; add `-tls-client-ca` for mTLS. For the backend, use the `OTEL_EXPORTER_OTLP_*CERTIFICATE*` variables.
 - **Container:** a distroless image running as non-root `65532`. The Helm chart sets a read-only root filesystem, drops all capabilities and disables privilege escalation.
 - **Robustness:** untrusted-input parsers are fuzz-tested in CI, request bodies are capped at 16 MiB, and gzip decompression is bounded (zip-bomb safe).
-- **Supply chain:** releases are keyless-cosign signed (binaries via `checksums.txt`, the image and the chart) with SBOMs. See [[Releases]].
+- **Supply chain:** releases are keyless-cosign signed (binaries via `checksums.txt`, the image and the chart), ship SBOMs, and carry SLSA build provenance (`gh attestation verify`). See [[Releases]].
 
 ## Known advisories
 
