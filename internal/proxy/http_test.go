@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"io"
@@ -352,5 +353,97 @@ func TestGateway(t *testing.T) {
 		if c := code(path); c != want {
 			t.Errorf("%s = %d, want %d", path, c, want)
 		}
+	}
+}
+
+// Legacy HTTP+SSE (2024-11-05): responses arrive on the GET stream, not on
+// the POST, and the session lives in the endpoint's query. They must still
+// correlate, and closing the stream ends the session.
+func TestLegacySSE(t *testing.T) {
+	spans := tracetest.NewInMemoryExporter()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSyncer(spans)))
+
+	stream := make(chan string, 8)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "text/event-stream")
+			io.WriteString(w, "event: endpoint\ndata: /message?sessionId=abc\n\n")
+			w.(http.Flusher).Flush()
+			for msg := range stream {
+				io.WriteString(w, "event: message\ndata: "+msg+"\n\n")
+				w.(http.Flusher).Flush()
+			}
+		case http.MethodPost:
+			if r.URL.Query().Get("sessionId") != "abc" {
+				t.Errorf("POST lost the session query: %s", r.URL)
+			}
+			b, _ := io.ReadAll(r.Body)
+			id := "0"
+			if strings.Contains(string(b), `"id":1`) {
+				id = "1"
+			}
+			w.WriteHeader(http.StatusAccepted)
+			stream <- `{"jsonrpc":"2.0","id":` + id + `,"result":{"protocolVersion":"2024-11-05","serverInfo":{"name":"legacy"}}}`
+		}
+	}))
+	defer upstream.Close()
+	up, _ := url.Parse(upstream.URL)
+	proxy := httptest.NewServer(HTTP(observe.NewTracker(observe.Options{Transport: "tcp"}), up))
+	defer proxy.Close()
+
+	get, err := http.Get(proxy.URL + "/sse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rd := bufio.NewReader(get.Body)
+	readEvent := func() string {
+		var data string
+		for {
+			l, err := rd.ReadString('\n')
+			if err != nil {
+				t.Fatal(err)
+			}
+			if l == "\n" {
+				return data
+			}
+			if d, ok := strings.CutPrefix(strings.TrimSuffix(l, "\n"), "data: "); ok {
+				data = d
+			}
+		}
+	}
+	ep := readEvent()
+	for i, body := range []string{
+		`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo"}}`,
+	} {
+		resp, err := http.Post(proxy.URL+ep, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if got := readEvent(); !strings.Contains(got, `"id":`+strconv.Itoa(i)) {
+			t.Fatalf("event %d = %s", i, got)
+		}
+	}
+	close(stream)
+	get.Body.Close()
+
+	got := spans.GetSpans()
+	if len(got) != 2 {
+		t.Fatalf("want 2 spans, got %d", len(got))
+	}
+	for _, s := range got {
+		if s.Status.Code != 0 {
+			t.Errorf("%s: status %v %q, want a matched response", s.Name, s.Status.Code, s.Status.Description)
+		}
+		for _, kv := range s.Attributes {
+			if kv.Key == "mcp.session.id" && kv.Value.AsString() == "" {
+				t.Errorf("%s: empty mcp.session.id", s.Name)
+			}
+		}
+	}
+	if got[1].Name != "tools/call echo" {
+		t.Errorf("second span = %q", got[1].Name)
 	}
 }
