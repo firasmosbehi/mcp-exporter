@@ -11,3 +11,15 @@ updates:
   - package-ecosystem: docker
     directory: /
     schedule: {interval: monthly}
+  # The reference stack: grafana/otel-lgtm (deploy/compose/lgtm.Dockerfile) and
+  # the compose images. Profiler images are left out on purpose: they must be
+  # bumped *with* otel-lgtm to its bundled Collector version, and CI's
+  # check-profiles-versions.sh fails the lgtm PR with the exact versions to set.
+  - package-ecosystem: docker
+    directory: /deploy/compose
+    schedule: {interval: monthly}
+  - package-ecosystem: docker-compose
+    directory: /deploy/compose
+    schedule: {interval: monthly}
+    ignore:
+      - dependency-name: "otel/opentelemetry-collector-*"
