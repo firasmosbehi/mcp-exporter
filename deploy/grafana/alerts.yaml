@@ -39,3 +39,17 @@ groups:
         labels: {severity: warning}
         annotations:
           summary: "mcp-exporter cannot export {{ $labels.signal }} (telemetry is being dropped)"
+      - alert: MCPTasksFailing
+        expr: |
+          sum by (service_name, gen_ai_tool_name) (rate(mcp_task_duration_seconds_count{mcp_task_status=~"failed|cancelled"}[15m]))
+            / sum by (service_name, gen_ai_tool_name) (rate(mcp_task_duration_seconds_count[15m])) > 0.25
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "MCP tasks for {{ $labels.gen_ai_tool_name }} on {{ $labels.service_name }} fail or are cancelled > 25%"
+      - alert: MCPExporterQueueFull
+        expr: max by (service_name) (otel_sdk_processor_span_queue_size / otel_sdk_processor_span_queue_capacity) > 0.8
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "mcp-exporter on {{ $labels.service_name }}: span queue > 80% (telemetry about to be dropped)"

@@ -6,6 +6,7 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Dashboard rows for MCP Tasks, client mode and exporter health (failed exports, unparsed frames, dropped telemetry, SDK queue fill), plus `MCPTasksFailing` and `MCPExporterQueueFull` alerts. The smoke test now runs an MCP Task and checks every dashboard query (#40).
 - The Helm chart is now installed in a real cluster (kind) on every PR: `deploy/helm/e2e.sh` checks readiness, an MCP session through the Service, the span, and the metrics and pprof ports (#39).
 - A wiki (source in `docs/wiki/`, published by `.github/workflows/wiki.yml`): Getting Started, Demo, Kubernetes, Client Mode, Backends, Configuration, Telemetry Reference, Architecture, Profiles, Security, Troubleshooting, Releases, Development.
 - One-command demo `deploy/compose/demo.sh` with a simulated agent (`deploy/compose/demo.yaml`) exercising tools, failures, slow calls, prompts, resources, an MCP Task lifecycle, server logging and session rotation, plus dashboard and trace screenshots in the README.

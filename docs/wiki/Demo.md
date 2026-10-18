@@ -27,8 +27,11 @@ The demo agent:
 
 ## Where to look
 
-- **Dashboard** (Dashboards → MCP Servers): request rate, error % (~7%, from the deliberate failures), tool latency
-  (the long-running operation stands out), sessions and message sizes.
+- **Dashboard** (Dashboards → MCP Servers), in four rows:
+  - **Server:** request rate, error % (~7%, from the deliberate failures), tool latency (the long-running operation stands out), sessions and message sizes.
+  - **MCP Tasks:** task duration and status.
+  - **Client mode:** empty here, filled by `-role client` exporters.
+  - **Exporter health:** failed exports, unparsed frames, dropped telemetry and SDK queue fill.
 - **Traces** (Explore → Tempo): `{span.gen_ai.tool.name != ""}`, `{span.error.type != ""}`, or `{span.mcp.task.id != ""}`
   to follow a task. Task spans link back to the call that created the task.
 - **Logs** (Explore → Loki): `{service_name="everything"}`. Access logs have `mcp.method.name`, `duration_ms` and `error.type`;

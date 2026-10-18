@@ -2,6 +2,7 @@ package jsonrpc
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 )
 
@@ -14,6 +15,16 @@ var seeds = []string{
 	`[{"jsonrpc":"2.0","id":1,"method":"a"},{"jsonrpc":"2.0","id":2,"method":"b","params":[1]}]`,
 	`{"jsonrpc":"2.0","id":null,"method":"x","params":{"_meta":null}}`,
 	`[]`, `{}`, `null`, `"str"`, `{"id":1e999}`,
+	`{"jsonrpc":"2.0","id":{"": 0},"method":"x"}`, // found in CI: whitespace in a (non-standard) object id
+}
+
+// compact strips insignificant whitespace; re-encoding may do the same.
+func compact(b []byte) string {
+	var out bytes.Buffer
+	if json.Compact(&out, b) != nil {
+		return string(b)
+	}
+	return out.String()
 }
 
 // Parsing untrusted frames must never panic, and adding trace context must
@@ -45,7 +56,8 @@ func FuzzParse(f *testing.F) {
 			t.Fatalf("re-parse of %s: err=%v batch=%v/%v len=%d/%d", out, err, batch2, batch, len(again), len(msgs))
 		}
 		for i := range msgs {
-			if !bytes.Equal(again[i].ID, msgs[i].ID) || again[i].Method != msgs[i].Method {
+			// encoding/json compacts raw values, so ids are equal modulo whitespace.
+			if compact(again[i].ID) != compact(msgs[i].ID) || again[i].Method != msgs[i].Method {
 				t.Fatalf("message %d changed: id %s->%s method %q->%q", i, msgs[i].ID, again[i].ID, msgs[i].Method, again[i].Method)
 			}
 		}
