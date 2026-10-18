@@ -18,6 +18,7 @@ go test ./internal/observe -bench .      # per-request overhead
 go test ./internal/jsonrpc -run '^$' -fuzz FuzzParse -fuzztime 1m   # fuzz (also FuzzSSEObserver, FuzzGunzip, FuzzFrame)
 gofmt -l . && go vet ./...               # what CI checks
 deploy/compose/smoke.sh                  # end-to-end: compose stack + assertions (needs Docker)
+deploy/helm/e2e.sh                       # Helm chart in the cluster KUBECONFIG points at (CI uses kind)
 ```
 
 Layout:

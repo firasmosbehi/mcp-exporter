@@ -31,6 +31,18 @@ jobs:
       - uses: actions/setup-go@v7
         with: {go-version-file: go.mod}
       - run: go test ./...
+  helm:
+    # The chart in a real cluster: Ready via /readyz, an MCP session through the Service, span, metrics and pprof ports.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+        with: {cluster_name: mcp-e2e}
+      - run: docker build -t mcp-exporter:e2e . && kind load docker-image mcp-exporter:e2e --name mcp-e2e
+      - run: deploy/helm/e2e.sh
+      - if: failure()
+        run: kubectl -n mcp-e2e describe pods; kubectl -n mcp-e2e get events
   e2e:
     # Real MCP server -> mcp-exporter -> Prometheus/Tempo/Loki, with assertions.
     runs-on: ubuntu-latest
