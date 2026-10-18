@@ -103,7 +103,17 @@ services() { # service_name values Pyroscope has seen in the last hour
 has_service() { services | grep -q "\"$1\""; }
 retry has_service mcp-exporter || fail "no pprof-scraped profiles for mcp-exporter: $(services)"
 echo "profiles (pprof receiver) ok"
-retry has_service everything || fail "no eBPF profiles for the MCP server (service everything): $(services)"
+# The eBPF profiler only samples processes while they're on-CPU (19 Hz), and an
+# idle server can produce no samples at all. Keep traffic flowing while waiting.
+H='-H Content-Type:application/json -H Accept:application/json,text/event-stream'
+U=http://mcp-exporter:8080/mcp
+curl -s -D /tmp/ph $H $U -o /dev/null -d '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"profiles-load","version":"1"}}}'
+PS=$(grep -i '^mcp-session-id:' /tmp/ph | tr -d '\r' | awk '{print $2}')
+( i=0; while :; do i=$((i+1)); curl -s $H -H "Mcp-Session-Id: $PS" $U -o /dev/null \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":$i,\"method\":\"tools/call\",\"params\":{\"name\":\"echo\",\"arguments\":{\"message\":\"load $i\"}}}"; done ) &
+LOAD=$!
+retry has_service everything || { kill $LOAD; fail "no eBPF profiles for the MCP server (service everything): $(services)"; }
+kill $LOAD
 echo "profiles (eBPF) ok"
 IN
 echo "PASS: compose smoke test"
