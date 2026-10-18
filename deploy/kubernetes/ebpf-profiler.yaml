@@ -6,7 +6,7 @@
 # Edit the exporter endpoint below: any OTLP backend that accepts profiles
 # (e.g. Pyroscope, or a Collector with the service.profilesSupport gate).
 # OTLP Profiles is Alpha: run the same Collector version here as your backend
-# Collector (this repo pins 0.161.0, checked by deploy/compose/check-profiles-versions.sh).
+# Collector (this repo pins 0.162.0, checked by deploy/compose/check-profiles-versions.sh).
 apiVersion: v1
 kind: Namespace
 metadata: {name: ebpf-profiler}
@@ -62,7 +62,7 @@ spec:
       hostPID: true
       containers:
         - name: profiler
-          image: otel/opentelemetry-collector-ebpf-profiler:0.161.0
+          image: otel/opentelemetry-collector-ebpf-profiler:0.162.0
           args: [--config=/etc/otelcol/config.yaml, --feature-gates=service.profilesSupport]
           securityContext: {privileged: true}
           env:

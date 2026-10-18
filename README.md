@@ -231,7 +231,7 @@ then Grafana → Explore → Profiles):
 
 Both need a backend that accepts OTLP profiles, such as Pyroscope or a Collector started with `--feature-gates=service.profilesSupport`.
 The Alpha wire format changes between Collector releases, so keep your profilers and backend Collector on the same version
-(this repo pins 0.161.0 to match `grafana/otel-lgtm:0.35.0`).
+(this repo pins 0.162.0 to match `grafana/otel-lgtm:0.36.0`).
 Profiles correlate with traces by service, instance and time window. Individual samples aren't tagged with span ids.
 
 ## Security

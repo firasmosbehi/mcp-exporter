@@ -17,13 +17,13 @@ services:
     command: ["http", "-listen", ":8080", "-upstream", "http://mcp-server:3001", "-pprof", ":6060"]
 
   pprof-collector:
-    image: otel/opentelemetry-collector-contrib:0.161.0
+    image: otel/opentelemetry-collector-contrib:0.162.0
     command: ["--config=/etc/otelcol/config.yaml", "--feature-gates=service.profilesSupport"]
     configs: [{source: pprof-collector, target: /etc/otelcol/config.yaml}]
     depends_on: [mcp-exporter, lgtm]
 
   ebpf-profiler:
-    image: otel/opentelemetry-collector-ebpf-profiler:0.161.0
+    image: otel/opentelemetry-collector-ebpf-profiler:0.162.0
     command: ["--config=/etc/otelcol/config.yaml", "--feature-gates=service.profilesSupport"]
     configs: [{source: ebpf-profiler, target: /etc/otelcol/config.yaml}]
     privileged: true # simplest way to grant the BPF/perf capabilities it needs
