@@ -5,6 +5,8 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0]
+
 ### Added
 - SLSA build provenance (GitHub artifact attestations) for release archives, the image and the chart, verifiable with `gh attestation verify` (#41).
 - Dashboard rows for MCP Tasks, client mode and exporter health (failed exports, unparsed frames, dropped telemetry, SDK queue fill), plus `MCPTasksFailing` and `MCPExporterQueueFull` alerts. The smoke test now runs an MCP Task and checks every dashboard query (#40).
@@ -63,7 +65,8 @@ All notable changes are documented here. The format follows
 - Signed release binaries, multi-arch distroless image, SBOMs, and the Helm chart as a signed OCI artifact.
 - `mcp-exporter version`, with the version also reported as the `telemetry.distro.version` resource attribute.
 
-[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.1.0...v0.2.0
