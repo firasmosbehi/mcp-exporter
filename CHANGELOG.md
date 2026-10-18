@@ -5,20 +5,20 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-18
+
 ### Added
 - **MCP protocol 2026-07-28 (stateless).**
   - `mcp.protocol.version`, `mcp.client.name` and `mcp.server.name` now come from each message's `_meta` (`io.modelcontextprotocol/protocolVersion`, `/clientInfo`, `/serverInfo`). Before this, they were missing whenever there was no `initialize`.
   - `subscriptions/listen` spans last as long as the subscription and end without an error. Before, they ended as `timeout` errors. They are never idle-swept or counted as in-flight.
   - The Tasks extension: flat `resultType: "task"` results, with or without opt-in, plus `notifications/tasks` and `tasks/update`.
   - Tested against the Python SDK 2.3 `MCPServer` over HTTP and stdio. The CI smoke test runs one (`deploy/compose/stateless.yaml`).
-
-### Fixed
-- HTTP, no session: a request whose response ends without an answer now ends right away. That's `error.type=cancelled` when the stream closed, or the HTTP status when the upstream failed (`502` if unreachable). Before, it ended as a `timeout` after `-session-idle`.
-
-### Added
 - Wiki:
   - Architecture has a **Tested with** table: client and server SDK pairs and their transports, including the Python SDK on all three.
   - Troubleshooting explains that SDK stdio clients don't pass `OTEL_*` to the exporter unless `env` is given.
+
+### Fixed
+- HTTP, no session: a request whose response ends without an answer now ends right away. That's `error.type=cancelled` when the stream closed, or the HTTP status when the upstream failed (`502` if unreachable). Before, it ended as a `timeout` after `-session-idle`.
 
 ## [0.6.1] - 2026-10-18
 
@@ -124,7 +124,8 @@ All notable changes are documented here. The format follows
 - Signed release binaries, multi-arch distroless image, SBOMs, and the Helm chart as a signed OCI artifact.
 - `mcp-exporter version`, with the version also reported as the `telemetry.distro.version` resource attribute.
 
-[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.4.0...v0.5.0
