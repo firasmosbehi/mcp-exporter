@@ -5,6 +5,8 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-18
+
 ### Added
 - Semantic-conventions conformance (#52):
   - `TestEmittedNamesAreInSemconv` checks every emitted span attribute, metric and metric attribute against a pinned registry (GenAI conventions at a commit, core conventions at v1.44.0), with an explicit list of project-defined names.
@@ -76,7 +78,8 @@ All notable changes are documented here. The format follows
 - Signed release binaries, multi-arch distroless image, SBOMs, and the Helm chart as a signed OCI artifact.
 - `mcp-exporter version`, with the version also reported as the `telemetry.distro.version` resource attribute.
 
-[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.2.0...v0.3.0
