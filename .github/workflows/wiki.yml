@@ -19,7 +19,7 @@ jobs:
             echo "::warning::The wiki isn't initialized yet. Open https://github.com/${REPO}/wiki, click 'Create the first page', save it, then re-run this workflow (Actions → wiki → Run workflow)."
             exit 0
           fi
-          rsync -a --delete --exclude .git docs/wiki/ wiki/
+          rsync -a --checksum --delete --exclude .git docs/wiki/ wiki/ # by content: same-size edits (0.6.1 -> 0.7.0) in the same second as the clone look unchanged to the mtime check
           cd wiki
           git add -A
           if git diff --cached --quiet; then echo "wiki already up to date"; exit 0; fi

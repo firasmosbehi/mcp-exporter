@@ -5,6 +5,9 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Wiki sync now compares files by content. Same-size edits, such as every version bump, could be skipped as unchanged, which left the wiki's Releases page at 0.6.1.
+
 ## [0.7.0] - 2026-10-18
 
 ### Added
