@@ -9,7 +9,7 @@ set -eu
 cd "$(dirname "$0")"
 P=mcp-smoke
 N=20
-files="-f docker-compose.yaml"
+files="-f docker-compose.yaml -f gateway.yaml"
 [ "${PROFILES:-}" = 1 ] && files="$files -f profiling.yaml"
 compose() { docker compose -p "$P" $files "$@"; }
 [ "${KEEP:-}" = 1 ] || trap 'compose down -v >/dev/null 2>&1' EXIT
@@ -89,6 +89,23 @@ retry sh -c 'curl -s "http://lgtm:3200/api/search?limit=5" --data-urlencode "q={
 echo "traces ok"
 retry sh -c 'curl -s -G http://lgtm:3100/loki/api/v1/query_range --data-urlencode "query={service_name=\"everything\"} | trace_id != \"\"" --data-urlencode limit=1 | grep -q "mcp request"' || fail "no trace-correlated logs in Loki"
 echo "logs ok"
+
+# Gateway (#54): each route is its own service in Prometheus and Tempo.
+for r in gw-alpha gw-beta; do
+  GU=http://mcp-gateway:8080/$r/mcp
+  retry curl -sf http://mcp-gateway:8080/$r/readyz -o /dev/null || fail "gateway route $r not ready"
+  retry sh -c "curl -sf -D /tmp/gh $H $GU -d '{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"smoke-gw\",\"version\":\"1\"}}}' -o /dev/null" \
+    || fail "initialize through gateway route $r"
+  GS=$(grep -i '^mcp-session-id:' /tmp/gh | tr -d '\r' | awk '{print $2}')
+  curl -sf $H -H "Mcp-Session-Id: $GS" $GU -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | grep -q '"tools"' || fail "tools/list through $r"
+done
+curl -sf http://mcp-gateway:8080/readyz -o /dev/null || fail "gateway aggregate readyz"
+for r in gw-alpha gw-beta; do
+  retry has "sum($D{service_name=\"$r\",mcp_method_name=\"tools/list\"})" '"1"\]' || fail "no tools/list metric for service $r: $(q "$D{mcp_method_name=\"tools/list\"}")"
+  retry sh -c "curl -s -G 'http://lgtm:3200/api/search?limit=5' --data-urlencode 'q={resource.service.name=\"$r\" && span.mcp.method.name=\"tools/list\"}' | grep -q '\"rootServiceName\":\"$r\"'" \
+    || fail "no tools/list trace for service $r in Tempo"
+done
+echo "gateway ok"
 IN
 
 [ "${PROFILES:-}" = 1 ] && docker run --rm -i --network "${P}_default" curlimages/curl:8.11.1 sh <<'IN'

@@ -1,0 +1,21 @@
+# Gateway mode (#54): one exporter in front of several MCP servers, each
+# exported as its own service (service.name = route name).
+#   docker compose -f docker-compose.yaml -f gateway.yaml up --build
+# Routes: http://mcp-gateway:8080/gw-alpha/mcp and /gw-beta/mcp (on the compose network)
+services:
+  mcp-server-2:
+    image: node:26-alpine
+    command: ["npx", "-y", "@modelcontextprotocol/server-everything", "streamableHttp"]
+    environment:
+      PORT: "3001"
+
+  mcp-gateway:
+    build: ../..
+    command: ["http", "-listen", ":8080",
+              "-route", "gw-alpha=http://mcp-server:3001",
+              "-route", "gw-beta=http://mcp-server-2:3001"]
+    environment:
+      OTEL_SERVICE_NAME: mcp-gateway # the gateway's own telemetry (export errors, SDK health)
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+      OTEL_METRIC_EXPORT_INTERVAL: "10000"
+    depends_on: [mcp-server, mcp-server-2, lgtm]

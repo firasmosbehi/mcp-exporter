@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -272,5 +273,84 @@ func TestHTTPProxySessionFlows(t *testing.T) {
 	}
 	if e := errType(byName["tools/call slow"]); e != "" {
 		t.Errorf("request answered on a resumed stream should succeed, error.type = %q", e)
+	}
+}
+
+// Issue #54: a gateway routes /NAME/... to each upstream with the prefix
+// stripped, keeps correlation per route (both servers may hand out the same
+// session id and use the same request ids), and aggregates readiness.
+func TestGateway(t *testing.T) {
+	readyTTL = 0
+	defer func() { readyTTL = 2 * time.Second }()
+	spans := tracetest.NewInMemoryExporter()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSyncer(spans)))
+
+	var mu sync.Mutex
+	paths := map[string]string{}
+	server := func(name string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			paths[name] = r.URL.Path
+			mu.Unlock()
+			time.Sleep(10 * time.Millisecond) // overlap the two requests
+			w.Header().Set("Mcp-Session-Id", "same")
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":{}}`)
+		}))
+	}
+	a, b := server("a"), server("b")
+	defer a.Close()
+	var routes []Route
+	for name, s := range map[string]*httptest.Server{"a": a, "b": b} {
+		up, _ := url.Parse(s.URL)
+		routes = append(routes, Route{Name: name, Upstream: up, Tracker: observe.NewTracker(observe.Options{Transport: "tcp"})})
+	}
+	gw := httptest.NewServer(Gateway(routes))
+	defer gw.Close()
+
+	done := make(chan struct{})
+	for _, name := range []string{"a", "b"} {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			req, _ := http.NewRequest("POST", gw.URL+"/"+name+"/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"`+name+`"}}`))
+			req.Header.Set("Mcp-Session-Id", "same")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+		}()
+	}
+	<-done
+	<-done
+	if paths["a"] != "/mcp" || paths["b"] != "/mcp" {
+		t.Errorf("prefix not stripped: %v", paths)
+	}
+	got := map[string]bool{}
+	for _, s := range spans.GetSpans() {
+		got[s.Name] = true
+	}
+	if !got["tools/call a"] || !got["tools/call b"] || len(spans.GetSpans()) != 2 {
+		t.Errorf("want one span per route, got %v", got)
+	}
+
+	code := func(path string) int {
+		resp, err := http.Get(gw.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if c := code("/readyz"); c != 200 {
+		t.Fatalf("aggregate readyz with live upstreams = %d", c)
+	}
+	b.Close()
+	for path, want := range map[string]int{"/readyz": 503, "/a/readyz": 200, "/b/readyz": 503, "/healthz": 200} {
+		if c := code(path); c != want {
+			t.Errorf("%s = %d, want %d", path, c, want)
+		}
 	}
 }

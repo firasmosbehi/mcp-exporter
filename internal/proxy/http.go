@@ -39,6 +39,45 @@ type exchange struct {
 // HTTP returns a Streamable HTTP reverse proxy to upstream (a base URL;
 // request paths pass through unchanged), plus /healthz and /readyz.
 func HTTP(t *observe.Tracker, upstream *url.URL) http.Handler {
+	h, _ := handler(t, upstream)
+	return h
+}
+
+// Route is one upstream of a gateway, served under /Name/.
+type Route struct {
+	Name     string
+	Tracker  *observe.Tracker
+	Upstream *url.URL
+}
+
+// Gateway proxies /NAME/... to each route's upstream with the prefix
+// stripped, so a route's own /healthz and /readyz are /NAME/healthz and
+// /NAME/readyz. Each route has its own Tracker, so sessions and request ids
+// never mix across upstreams. /readyz is ready when every route is.
+func Gateway(routes []Route) http.Handler {
+	mux := http.NewServeMux()
+	var rds []*readiness
+	for _, r := range routes {
+		h, rd := handler(r.Tracker, r.Upstream)
+		rds = append(rds, rd)
+		h = http.StripPrefix("/"+r.Name, h)
+		mux.Handle("/"+r.Name, h)
+		mux.Handle("/"+r.Name+"/", h)
+	}
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "ok\n") })
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		for i, rd := range rds {
+			if err := rd.check(); err != nil {
+				http.Error(w, routes[i].Name+": upstream unreachable: "+err.Error(), http.StatusServiceUnavailable)
+				return
+			}
+		}
+		io.WriteString(w, "ok\n")
+	})
+	return mux
+}
+
+func handler(t *observe.Tracker, upstream *url.URL) (http.Handler, *readiness) {
 	var seq atomic.Uint64
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
@@ -114,7 +153,7 @@ func HTTP(t *observe.Tracker, upstream *url.URL) http.Handler {
 		}
 		rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), exchangeKey{}, ex)))
 	})
-	return mux
+	return mux, rd
 }
 
 // readyTTL is how long a readiness result is reused, so frequent probes

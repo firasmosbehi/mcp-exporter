@@ -10,11 +10,29 @@ helm install weather oci://ghcr.io/firasmosbehi/charts/mcp-exporter --version <v
   --set exporter.env.OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.observability:4318
 ```
 
+## Gateway mode
+
+To put one exporter in front of MCP servers that already run elsewhere in the cluster, set `gateway.routes`. The chart then deploys
+only the exporter, with no server sidecar:
+
+```yaml
+gateway:
+  routes:
+    - {name: github, url: "http://github-mcp.tools:3000"}
+    - {name: jira, url: "http://jira-mcp.tools:3000"}
+```
+
+Agents connect to `http://<release>/github/mcp`. Each route is exported as its own `service.name` (`github`, `jira`), and request ids
+and sessions are tracked separately per upstream. The readiness probe (`/readyz`) waits for every upstream, while `/<name>/readyz` checks one.
+The release's own `OTEL_SERVICE_NAME` labels only the exporter's self-telemetry, such as export errors.
+Session affinity applies as in sidecar mode.
+
 ## Values
 
 | Value | Default | Notes |
 |---|---|---|
 | `server.image`, `command`, `args`, `env`, `port`, `resources` | server-everything on 3001 | your MCP server; must speak Streamable HTTP on `server.port` |
+| `gateway.routes` | `[]` | `[{name, url}]`; when set, gateway mode without the server sidecar |
 | `exporter.image` / `exporter.tag` | ghcr image / chart `appVersion` | |
 | `exporter.port` | `8080` | Service `targetPort` |
 | `exporter.env` | OTLP endpoint + parent-based sampler | any `OTEL_*` variable, passed verbatim |

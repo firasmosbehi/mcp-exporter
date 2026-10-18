@@ -36,4 +36,28 @@ until kubectl -n $NS logs deploy/$REL -c mcp-exporter | grep -q '"Name":"tools/c
   i=$((i+1)); [ $i -lt 15 ] || fail "no tools/call echo span in the exporter log"; sleep 2
 done
 echo "span in exporter log ok"
+
+# Gateway mode: no sidecar, one route to the release above (via its Service).
+GW=e2e-gw
+helm upgrade --install $GW ./mcp-exporter -n $NS --wait --timeout 4m \
+  --set exporter.image="${IMAGE%:*}" --set exporter.tag="${IMAGE##*:}" \
+  --set 'gateway.routes[0].name=everything' --set "gateway.routes[0].url=http://$REL.$NS.svc" \
+  --set exporter.env.OTEL_TRACES_EXPORTER=console --set exporter.env.OTEL_LOGS_EXPORTER=none \
+  || fail "gateway release did not become Ready"
+[ "$(kubectl -n $NS get deploy $GW -o jsonpath='{.spec.template.spec.containers[*].name}')" = mcp-exporter ] || fail "gateway mode must not deploy a server sidecar"
+kubectl -n $NS run mcp-gw-client --rm -i --restart=Never --quiet --image=curlimages/curl:8.11.1 --command -- sh -c '
+set -eu
+U=http://e2e-gw/everything/mcp
+H="-H Content-Type:application/json -H Accept:application/json,text/event-stream"
+curl -sf -D /tmp/h $H $U -o /dev/null -d "{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"e2e-gw\",\"version\":\"1\"}}}"
+S=$(grep -i "^mcp-session-id:" /tmp/h | tr -d "\r" | cut -d" " -f2)
+curl -sf $H -H "Mcp-Session-Id: $S" $U -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}" | grep -q "\"tools\""
+curl -sf http://e2e-gw/everything/readyz -o /dev/null
+echo "mcp session through the gateway ok"
+' || fail "gateway client checks"
+i=0
+until kubectl -n $NS logs deploy/$GW | grep '"Name":"tools/list"' | grep -q '"Value":"everything"'; do
+  i=$((i+1)); [ $i -lt 15 ] || fail "no tools/list span with service.name=everything in the gateway log"; sleep 2
+done
+echo "gateway span ok"
 echo "PASS: helm chart e2e"

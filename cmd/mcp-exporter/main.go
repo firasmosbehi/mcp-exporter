@@ -3,6 +3,7 @@
 //
 //	mcp-exporter stdio [flags] -- <server command> [args...]
 //	mcp-exporter http  [flags] -upstream http://server:3000
+//	mcp-exporter http  [flags] -route github=http://github-mcp:3000 -route jira=...
 package main
 
 import (
@@ -34,6 +35,7 @@ var version = "dev"
 const usage = `usage:
   mcp-exporter stdio [flags] -- <server command> [args...]
   mcp-exporter http  [flags] -upstream <url>
+  mcp-exporter http  [flags] -route <name>=<url> [-route <name>=<url> ...]
   mcp-exporter version
 
 Telemetry export is configured with the standard OTEL_* environment variables,
@@ -77,6 +79,7 @@ func run(mode string, args []string) (int, error) {
 	var (
 		listen, upstream, certFile, keyFile, clientCA *string
 		idle                                          *time.Duration
+		routes                                        routeFlags
 	)
 	transport := "pipe"
 	switch mode {
@@ -84,7 +87,8 @@ func run(mode string, args []string) (int, error) {
 	case "http":
 		transport = "tcp"
 		listen = fs.String("listen", ":8080", "address to listen on")
-		upstream = fs.String("upstream", "", "base URL of the MCP server (required)")
+		upstream = fs.String("upstream", "", "base URL of the MCP server (this or -route is required)")
+		fs.Var(&routes, "route", "gateway mode, repeatable: proxy /NAME/... to URL with /NAME stripped, as its own service.name=NAME")
 		idle = fs.Duration("session-idle", 30*time.Minute, "end sessions and requests idle this long")
 		certFile = fs.String("tls-cert", "", "serve TLS with this certificate")
 		keyFile = fs.String("tls-key", "", "private key for -tls-cert")
@@ -131,29 +135,55 @@ func run(mode string, args []string) (int, error) {
 		Transport: transport, Role: *role, InjectContext: *inject, CapturePayloads: *capture, MaxPayload: *maxPayload,
 		CaptureTools: tools, RedactKeys: keys,
 	}
-	var up *url.URL
-	if mode == "http" {
-		if *upstream == "" {
-			return 2, errors.New("http: -upstream is required")
-		}
-		if up, err = url.Parse(*upstream); err != nil || up.Host == "" {
-			return 2, fmt.Errorf("http: bad -upstream %q", *upstream)
-		}
-		opts.ServerAddress = up.Hostname()
-		opts.ServerPort, _ = strconv.Atoi(up.Port())
-		if opts.ServerPort == 0 {
-			opts.ServerPort = map[string]int{"http": 80, "https": 443}[up.Scheme]
-		}
-	}
-	t := observe.NewTracker(opts)
+	var (
+		trackers  []*observe.Tracker
+		shutdowns = []func(context.Context) error{shutdown}
+		handler   http.Handler
+	)
 	defer func() {
-		t.Close()
+		for _, t := range trackers {
+			t.Close()
+		}
 		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := shutdown(flushCtx); err != nil {
-			slog.Warn("telemetry flush", "err", err)
+		for _, sd := range shutdowns {
+			if err := sd(flushCtx); err != nil {
+				slog.Warn("telemetry flush", "err", err)
+			}
 		}
 	}()
+	switch {
+	case mode == "stdio":
+		trackers = append(trackers, observe.NewTracker(opts))
+	case (*upstream == "") == (len(routes) == 0):
+		return 2, errors.New("http: need exactly one of -upstream or -route")
+	case *upstream != "":
+		up, err := parseUpstream(*upstream, &opts)
+		if err != nil {
+			return 2, err
+		}
+		trackers = append(trackers, observe.NewTracker(opts))
+		handler = proxy.HTTP(trackers[0], up)
+		slog.Info("proxying", "listen", *listen, "upstream", up.String(), "tls", *certFile != "")
+	default:
+		var rs []proxy.Route
+		for _, r := range routes {
+			o := opts
+			up, err := parseUpstream(r.url, &o)
+			if err != nil {
+				return 2, err
+			}
+			if o.Providers, err = observe.NewProviders(ctx, r.name); err != nil {
+				return 1, fmt.Errorf("telemetry setup for route %s: %w", r.name, err)
+			}
+			shutdowns = append(shutdowns, o.Providers.Shutdown)
+			t := observe.NewTracker(o)
+			trackers = append(trackers, t)
+			rs = append(rs, proxy.Route{Name: r.name, Tracker: t, Upstream: up})
+			slog.Info("routing", "listen", *listen, "path", "/"+r.name+"/", "upstream", up.String(), "tls", *certFile != "")
+		}
+		handler = proxy.Gateway(rs)
+	}
 
 	if *pprofAddr != "" {
 		go servePprof(ctx, *pprofAddr)
@@ -163,10 +193,10 @@ func run(mode string, args []string) (int, error) {
 		if fs.NArg() == 0 {
 			return 2, errors.New("stdio: missing server command after --")
 		}
-		return proxy.Stdio(ctx, t, fs.Args(), os.Stdin, protocolOut)
+		return proxy.Stdio(ctx, trackers[0], fs.Args(), os.Stdin, protocolOut)
 	}
 
-	srv := &http.Server{Addr: *listen, Handler: proxy.HTTP(t, up), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	if *clientCA != "" {
 		pem, err := os.ReadFile(*clientCA)
 		if err != nil {
@@ -187,7 +217,9 @@ func run(mode string, args []string) (int, error) {
 			case <-ctx.Done():
 				return
 			case <-tick.C:
-				t.Sweep(*idle)
+				for _, t := range trackers {
+					t.Sweep(*idle)
+				}
 			}
 		}
 	}()
@@ -198,7 +230,6 @@ func run(mode string, args []string) (int, error) {
 		srv.Shutdown(sctx)
 	}()
 
-	slog.Info("proxying", "listen", *listen, "upstream", up.String(), "tls", *certFile != "")
 	if *certFile != "" {
 		err = srv.ListenAndServeTLS(*certFile, *keyFile)
 	} else if *clientCA != "" {
@@ -210,6 +241,46 @@ func run(mode string, args []string) (int, error) {
 		return 0, nil
 	}
 	return 1, err
+}
+
+// parseUpstream validates an upstream URL and sets the server.* attributes.
+func parseUpstream(raw string, opts *observe.Options) (*url.URL, error) {
+	up, err := url.Parse(raw)
+	if err != nil || up.Host == "" {
+		return nil, fmt.Errorf("http: bad upstream %q", raw)
+	}
+	opts.ServerAddress = up.Hostname()
+	opts.ServerPort, _ = strconv.Atoi(up.Port())
+	if opts.ServerPort == 0 {
+		opts.ServerPort = map[string]int{"http": 80, "https": 443}[up.Scheme]
+	}
+	return up, nil
+}
+
+type route struct{ name, url string }
+
+// routeFlags collects repeated -route NAME=URL flags.
+type routeFlags []route
+
+var routeName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+
+func (r *routeFlags) String() string { return fmt.Sprint(*r) }
+
+func (r *routeFlags) Set(v string) error {
+	name, u, ok := strings.Cut(v, "=")
+	if !ok || !routeName.MatchString(name) {
+		return fmt.Errorf("want NAME=URL with NAME matching %s, got %q", routeName, v)
+	}
+	if name == "healthz" || name == "readyz" {
+		return fmt.Errorf("route name %q is reserved", name)
+	}
+	for _, x := range *r {
+		if x.name == name {
+			return fmt.Errorf("duplicate route %q", name)
+		}
+	}
+	*r = append(*r, route{name, u})
+	return nil
 }
 
 // servePprof exposes /debug/pprof/ on its own listener, never on the proxy

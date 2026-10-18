@@ -45,6 +45,7 @@ type Options struct {
 	CaptureTools    map[string]bool // if non-empty, capture payloads only for these tools
 	RedactKeys      *regexp.Regexp  // object keys whose values are redacted; nil means DefaultRedactKeys
 	MaxNames        int             // distinct tool/prompt names on metrics before folding into "_other"
+	Providers       *Providers      // nil means the global providers
 }
 
 // Semconv: on the server these JSON-RPC codes are caller mistakes, not server errors.
@@ -125,11 +126,15 @@ func NewTracker(opts Options) *Tracker {
 	if opts.Role != "client" {
 		opts.Role = "server"
 	}
-	m := otel.Meter(scopeName)
+	m, tracer, log := otel.Meter(scopeName), otel.Tracer(scopeName), otelslog.NewLogger(scopeName)
+	if p := opts.Providers; p != nil {
+		m, tracer = p.Meter.Meter(scopeName), p.Tracer.Tracer(scopeName)
+		log = otelslog.NewLogger(scopeName, otelslog.WithLoggerProvider(p.Logger))
+	}
 	t := &Tracker{
 		opts:     opts,
-		tracer:   otel.Tracer(scopeName),
-		log:      otelslog.NewLogger(scopeName),
+		tracer:   tracer,
+		log:      log,
 		prop:     otel.GetTextMapPropagator(),
 		pending:  map[pendingKey]*pending{},
 		sessions: map[string]*session{},
