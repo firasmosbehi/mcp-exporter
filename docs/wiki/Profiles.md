@@ -20,7 +20,7 @@ CI's end-to-end test checks that profiles from both arrive.
 ## Things to know
 
 - **Keep versions aligned.** `grafana/otel-lgtm` 0.11 (Collector 0.134) rejected profiles from Collector 0.163 with
-  `proto: wrong wireType`. The repo pins the profilers to **0.161.0**, matching `otel-lgtm:0.35.0`.
+  `proto: wrong wireType`. The repo pins the profilers to **0.162.0**, matching `otel-lgtm:0.36.0`.
   `deploy/compose/check-profiles-versions.sh` (run in CI) reads the Collector version bundled in the pinned `otel-lgtm`
   and fails, printing the versions to set, if any profiler pin differs. Dependabot bumps `otel-lgtm`, and the
   profilers are bumped in the same PR.

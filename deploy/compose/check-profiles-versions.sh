@@ -7,6 +7,10 @@ set -eu
 cd "$(dirname "$0")/../.."
 lgtm=$(sed -n 's/^FROM //p' deploy/compose/lgtm.Dockerfile)
 want=$(docker run --rm --entrypoint /otel-lgtm/otelcol-contrib/otelcol-contrib "$lgtm" --version | awk '{print $NF}')
+case "$want" in
+  [0-9]*.[0-9]*.[0-9]*) ;;
+  *) echo "ERROR: couldn't read the Collector version bundled in $lgtm (got '$want')"; exit 2 ;;
+esac
 bad=0
 for f in deploy/compose/profiling.yaml deploy/kubernetes/ebpf-profiler.yaml; do
   for img in $(grep -oE 'otel/opentelemetry-collector-[a-z-]+:[0-9][0-9.]*' "$f" | sort -u); do
