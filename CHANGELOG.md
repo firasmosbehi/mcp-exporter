@@ -5,6 +5,8 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-18
+
 ### Added
 - **MCP protocol 2026-07-28 (stateless).**
   - `mcp.protocol.version`, `mcp.client.name` and `mcp.server.name` now come from each message's `_meta` (`io.modelcontextprotocol/protocolVersion`, `/clientInfo`, `/serverInfo`). Before this, they were missing whenever there was no `initialize`.
@@ -124,7 +126,8 @@ All notable changes are documented here. The format follows
 - Signed release binaries, multi-arch distroless image, SBOMs, and the Helm chart as a signed OCI artifact.
 - `mcp-exporter version`, with the version also reported as the `telemetry.distro.version` resource attribute.
 
-[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/firasmosbehi/mcp-exporter/compare/v0.4.0...v0.5.0
