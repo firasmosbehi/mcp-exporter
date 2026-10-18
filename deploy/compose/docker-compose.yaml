@@ -4,7 +4,7 @@
 # MCP endpoint: http://localhost:8080/mcp   Grafana: http://localhost:3000
 services:
   mcp-server:
-    image: node:22-alpine
+    image: node:26-alpine
     command: ["npx", "-y", "@modelcontextprotocol/server-everything", "streamableHttp"]
     environment:
       PORT: "3001"
