@@ -5,6 +5,11 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Wiki:
+  - Architecture has a **Tested with** table: client and server SDK pairs and their transports, including the Python SDK on all three.
+  - Troubleshooting explains that SDK stdio clients don't pass `OTEL_*` to the exporter unless `env` is given.
+
 ## [0.6.1] - 2026-10-18
 
 ### Fixed

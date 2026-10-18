@@ -50,6 +50,18 @@ In stdio mode, **stdout is the protocol channel**. Two layers keep it clean:
 
 The server's stderr is passed through and also exported as log records.
 
+## Tested with
+
+Each combination below was run end to end through the exporter, checking spans for correct correlation, error classification,
+session, protocol version and server name. The table is updated when a combination is added.
+
+| Client | Server | Transports |
+|---|---|---|
+| TypeScript SDK (server-everything) / curl | TypeScript SDK `server-everything` | Streamable HTTP (CI smoke test), legacy HTTP+SSE |
+| Python SDK 1.30 `ClientSession` | Python SDK 1.30 FastMCP | Streamable HTTP, legacy HTTP+SSE (`session_id`), stdio |
+| Go `cmd/demo-agent` | TypeScript SDK `server-everything` | Streamable HTTP, with MCP Tasks (CI smoke test) |
+| Claude Desktop config via `mcp-remote` | `mcp.deepwiki.com` | stdio client mode |
+
 ## Code map
 
 | Package | Responsibility |
